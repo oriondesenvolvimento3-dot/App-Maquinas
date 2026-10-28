@@ -13,12 +13,11 @@
 
   html,
   body {
-    height: 100%;
+    min-height: 100%;
     width: 100%;
     margin: 0;
     padding: 0;
-    overflow: hidden;
-    overscroll-behavior: none;
+    overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     background-color: #F8FAFC;
     color: #0F172A;
@@ -27,6 +26,12 @@
     -moz-osx-font-smoothing: grayscale;
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
+  }
+
+  #root {
+    min-height: 100%;
+    width: 100%;
+    overflow-y: auto;
   }
 }
 

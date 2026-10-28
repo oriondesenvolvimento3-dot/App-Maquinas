@@ -180,7 +180,7 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
                 id="select-machine"
                 value={selectedMachineId}
                 onChange={(e) => handleMachineChange(e.target.value)}
-                className="w-full h-13 px-3.5 bg-white border border-[#E2E8F0] rounded-xl text-sm font-medium text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] focus:border-transparent transition-all appearance-none cursor-pointer"
+                className="w-full h-12 px-4 pr-10 bg-white border border-[#E2E8F0] rounded-xl text-base font-medium text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] focus:border-transparent transition-all appearance-none cursor-pointer shadow-xs"
               >
                 {machines.length === 0 ? (
                   <option value="">Nenhuma máquina cadastrada</option>
@@ -192,7 +192,7 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
                   ))
                 )}
               </select>
-              <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-[#64748B]">
+              <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-[#64748B]">
                 ▼
               </div>
             </div>
@@ -214,7 +214,7 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
               value={startHours}
               onChange={(e) => setStartHours(e.target.value)}
               placeholder="Ex: 1250"
-              className="w-full h-13 px-3.5 bg-white border border-[#E2E8F0] rounded-xl text-sm font-medium text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] focus:border-transparent transition-all placeholder:text-[#94A3B8]"
+              className="w-full h-12 px-4 bg-white border border-[#E2E8F0] rounded-xl text-base font-medium text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] focus:border-transparent transition-all placeholder:text-[#94A3B8] shadow-xs"
             />
             {formErrors.start_hours && (
               <p className="text-[11px] text-red-600">{formErrors.start_hours}</p>
@@ -234,7 +234,7 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
               value={endHours}
               onChange={(e) => setEndHours(e.target.value)}
               placeholder="Ex: 1258"
-              className={`w-full h-13 px-3.5 bg-white border rounded-xl text-sm font-medium text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] focus:border-transparent transition-all placeholder:text-[#94A3B8] ${
+              className={`w-full h-12 px-4 bg-white border rounded-xl text-base font-medium text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] focus:border-transparent transition-all placeholder:text-[#94A3B8] shadow-xs ${
                 isHorometerInvalid ? 'border-amber-400 bg-amber-50/30' : 'border-[#E2E8F0]'
               }`}
             />
@@ -269,7 +269,7 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
               type="text"
               value={operatorName}
               onChange={(e) => setOperatorName(e.target.value)}
-              className="w-full h-13 px-3.5 bg-white border border-[#E2E8F0] rounded-xl text-sm font-medium text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] focus:border-transparent transition-all"
+              className="w-full h-12 px-4 bg-white border border-[#E2E8F0] rounded-xl text-base font-medium text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] focus:border-transparent transition-all shadow-xs"
             />
           </div>
 
@@ -285,7 +285,7 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
               value={clientName}
               onChange={(e) => setClientName(e.target.value)}
               placeholder="Ex: Construtora Alfa, Fazenda Boa Vista"
-              className="w-full h-13 px-3.5 bg-white border border-[#E2E8F0] rounded-xl text-sm font-medium text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] focus:border-transparent transition-all placeholder:text-[#94A3B8]"
+              className="w-full h-12 px-4 bg-white border border-[#E2E8F0] rounded-xl text-base font-medium text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] focus:border-transparent transition-all placeholder:text-[#94A3B8] shadow-xs"
             />
             {formErrors.client_name && (
               <p className="text-[11px] text-red-600">{formErrors.client_name}</p>
@@ -310,7 +310,7 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
               value={clientPhone}
               onChange={(e) => setClientPhone(formatPhoneMask(e.target.value))}
               placeholder="Ex: (35) 99999-9999"
-              className="w-full h-13 px-3.5 bg-white border border-[#E2E8F0] rounded-xl text-sm font-medium text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] focus:border-transparent transition-all placeholder:text-[#94A3B8]"
+              className="w-full h-12 px-4 bg-white border border-[#E2E8F0] rounded-xl text-base font-medium text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] focus:border-transparent transition-all placeholder:text-[#94A3B8] shadow-xs"
             />
           </div>
 
@@ -325,7 +325,7 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
               type="date"
               value={serviceDate}
               onChange={(e) => setServiceDate(e.target.value)}
-              className="w-full h-13 px-3.5 bg-white border border-[#E2E8F0] rounded-xl text-sm font-medium text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] focus:border-transparent transition-all"
+              className="w-full h-12 px-4 bg-white border border-[#E2E8F0] rounded-xl text-base font-medium text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] focus:border-transparent transition-all cursor-pointer shadow-xs"
             />
           </div>
 
@@ -341,7 +341,7 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
               value={observations}
               onChange={(e) => setObservations(e.target.value)}
               placeholder="Ex: Serviço de limpeza de terreno."
-              className="w-full p-3.5 bg-white border border-[#E2E8F0] rounded-xl text-sm font-medium text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] focus:border-transparent transition-all placeholder:text-[#94A3B8] resize-none"
+              className="w-full min-h-[100px] p-4 bg-white border border-[#E2E8F0] rounded-2xl text-base font-medium text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] focus:border-transparent transition-all placeholder:text-[#94A3B8] resize-none shadow-xs"
             />
           </div>
 

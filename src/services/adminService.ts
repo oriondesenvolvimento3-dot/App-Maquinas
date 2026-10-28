@@ -389,6 +389,72 @@ export async function rejectWorkLog(
 }
 
 /**
+ * 4.1. Exclui permanentemente um apontamento de serviço (tanto no Supabase quanto no Dexie local),
+ * limpando também quaisquer lançamentos financeiros vinculados para manter a integridade dos dados e métricas.
+ */
+export async function deleteWorkLog(
+  workLogId: string | number
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const online = typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
+
+    // 1. Remove do Dexie local
+    if (typeof workLogId === 'number') {
+      await db.offline_work_logs.delete(workLogId);
+    } else {
+      const numericId = parseInt(workLogId, 10);
+      if (!isNaN(numericId)) {
+        await db.offline_work_logs.delete(numericId);
+      }
+      try {
+        const matched = await db.offline_work_logs.where('server_id').equals(workLogId).toArray();
+        for (const item of matched) {
+          if (item.id) await db.offline_work_logs.delete(item.id);
+        }
+      } catch {
+        const allLocal = await db.offline_work_logs.toArray();
+        const matched = allLocal.filter((l) => l.server_id === workLogId || String(l.id) === workLogId);
+        for (const item of matched) {
+          if (item.id) await db.offline_work_logs.delete(item.id);
+        }
+      }
+    }
+
+    // 2. Se online, remove do Supabase
+    if (online) {
+      const serverId = String(workLogId);
+
+      // Remove lançamentos financeiros vinculados (se houver) para evitar violação de integridade referencial
+      try {
+        await supabase
+          .from('financial_entries')
+          .delete()
+          .eq('work_log_id', serverId);
+      } catch (finErr) {
+        console.warn('[Supabase deleteWorkLog financial_entries warning]:', finErr);
+      }
+
+      // Remove o apontamento da tabela work_logs
+      const { error } = await supabase
+        .from('work_logs')
+        .delete()
+        .eq('id', serverId);
+
+      if (error) {
+        console.error('[Supabase deleteWorkLog Error]:', error);
+        throw error;
+      }
+    }
+
+    return { success: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Falha ao excluir serviço';
+    console.error('[AdminService] Erro ao excluir:', msg);
+    return { success: false, error: msg };
+  }
+}
+
+/**
  * 5. CRUD de Máquinas: listagem completa
  */
 export async function fetchMachines(): Promise<Machine[]> {

@@ -150,7 +150,7 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
   };
 
   return (
-    <div className="relative flex flex-col justify-between w-full max-w-md mx-auto min-h-screen bg-[#F8FAFC] shadow-2xl pb-24">
+    <div className="relative flex flex-col justify-between w-full max-w-md mx-auto min-h-screen overflow-y-auto bg-[#F8FAFC] shadow-2xl pb-24">
       
       {/* 1. CABEÇALHO */}
       <header className="px-6 pt-4 pb-3 bg-white border-b border-[#E2E8F0] sticky top-0 z-20">
@@ -343,7 +343,7 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
       </div>
 
       {/* 5. BARRA INFERIOR (BOTTOM NAVIGATION) */}
-      <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-[#E2E8F0] px-6 py-2.5 flex items-center justify-between z-30 shadow-lg">
+      <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-[#E2E8F0] px-6 py-2.5 flex items-center justify-between z-40 shadow-lg">
         <button
           type="button"
           onClick={onNavigateToDashboard}

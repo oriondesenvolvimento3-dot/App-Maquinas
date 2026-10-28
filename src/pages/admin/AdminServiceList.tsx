@@ -6,8 +6,6 @@ import {
 } from '../../services/adminService';
 import {
   Truck,
-  Check,
-  Filter,
   Home,
   CheckSquare,
   BadgeDollarSign,
@@ -75,7 +73,7 @@ export const AdminServiceList: React.FC<AdminServiceListProps> = ({
   };
 
   return (
-    <div className="relative flex flex-col justify-between w-full max-w-md mx-auto min-h-screen bg-[#F8FAFC] shadow-2xl pb-20">
+    <div className="relative flex flex-col justify-between w-full max-w-md mx-auto min-h-screen overflow-y-auto bg-[#F8FAFC] shadow-2xl pb-24">
       
       {/* 1. CABEÇALHO SUPERIOR */}
       <header className="px-6 pt-4 pb-3 bg-white border-b border-[#E2E8F0] sticky top-0 z-20">
@@ -93,27 +91,10 @@ export const AdminServiceList: React.FC<AdminServiceListProps> = ({
 
         <p className="text-xs font-medium text-[#64748B]">Lista de serviços (admin)</p>
 
-        <div className="flex items-center justify-between mt-1">
+        <div className="mt-1">
           <h1 className="text-2xl font-extrabold text-[#0F172A] tracking-tight">
             Serviços
           </h1>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="p-1.5 text-[#0F172A] hover:bg-[#F1F5F9] rounded-lg transition-colors cursor-pointer"
-              title="Marcar conferidos"
-            >
-              <Check className="w-5 h-5 stroke-[2.2]" />
-            </button>
-            <button
-              type="button"
-              className="p-1.5 text-[#0F172A] hover:bg-[#F1F5F9] rounded-lg transition-colors cursor-pointer"
-              title="Filtro avançado"
-            >
-              <Filter className="w-5 h-5 stroke-[2]" />
-            </button>
-          </div>
         </div>
 
         {/* Pílulas de Filtros Horizontais */}
@@ -217,7 +198,7 @@ export const AdminServiceList: React.FC<AdminServiceListProps> = ({
       </main>
 
       {/* 3. BARRA INFERIOR (BOTTOM NAVIGATION) */}
-      <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-[#E2E8F0] px-6 py-2.5 flex items-center justify-between z-30 shadow-lg">
+      <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-[#E2E8F0] px-6 py-2.5 flex items-center justify-between z-40 shadow-lg">
         <button
           type="button"
           onClick={onBackToDashboard}

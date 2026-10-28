@@ -65,7 +65,7 @@ export const Welcome: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 h-full w-full overflow-hidden overscroll-none touch-none select-none flex flex-col justify-between items-center bg-[#F8FAFC] px-6 py-4">
+    <div className="fixed inset-0 h-full w-full overflow-hidden overscroll-none touch-manipulation select-none flex flex-col justify-between items-center bg-[#F8FAFC] px-6 py-4">
       
       {/* 1. TOP STATUS BAR (Relógio em tempo real sincronizado) */}
       <header className="w-full max-w-md flex items-center justify-between px-1 pt-1 pb-1 text-[#0F172A] z-20">

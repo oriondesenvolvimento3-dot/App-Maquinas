@@ -3,6 +3,7 @@ import {
   fetchAdminWorkLogs,
   approveWorkLog,
   rejectWorkLog,
+  deleteWorkLog,
   type ExtendedWorkLog,
 } from '../../services/adminService';
 import { generateSingleServiceReceiptPdf } from '../../utils/pdfGenerator';
@@ -22,6 +23,7 @@ import {
   MessageCircle,
   FileText,
   Phone,
+  Trash2,
 } from 'lucide-react';
 
 interface AdminServiceDetailProps {
@@ -38,6 +40,7 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
   const [service, setService] = useState<ExtendedWorkLog | null>(null);
   const [hourlyRateInput, setHourlyRateInput] = useState<string>('0');
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState<boolean>(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => {
@@ -85,6 +88,26 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
       setTimeout(() => onActionComplete(), 1200);
     } else {
       setFeedback({ type: 'error', message: result.error || 'Erro ao rejeitar serviço.' });
+    }
+  };
+
+  /**
+   * Exclusão permanente do apontamento de serviço
+   */
+  const handleDelete = async () => {
+    if (!service || isProcessing) return;
+    setIsProcessing(true);
+    setFeedback(null);
+
+    const result = await deleteWorkLog(service.id);
+    setIsProcessing(false);
+    setIsDeleteModalOpen(false);
+
+    if (result.success) {
+      setFeedback({ type: 'success', message: 'Serviço excluído com sucesso!' });
+      setTimeout(() => onActionComplete(), 1000);
+    } else {
+      setFeedback({ type: 'error', message: result.error || 'Erro ao excluir serviço.' });
     }
   };
 
@@ -200,11 +223,27 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
           </h1>
         </div>
 
-        {getStatusBadge(service.status)}
+        <div className="flex items-center gap-2">
+          {getStatusBadge(service.status)}
+          <button
+            id="btn-delete-service-header"
+            type="button"
+            onClick={() => setIsDeleteModalOpen(true)}
+            disabled={isProcessing}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-red-500 hover:text-red-700 hover:bg-red-50 active:scale-95 transition-all cursor-pointer"
+            title="Excluir serviço"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
       </header>
 
       {/* 2. CARD DETALHADO DO SERVIÇO */}
-      <main className="flex-1 px-6 py-6 space-y-5 overflow-y-auto">
+      <main
+        className={`flex-1 px-6 py-6 space-y-5 overflow-y-auto ${
+          service.status === 'aprovado' ? 'pb-8' : 'pb-28'
+        }`}
+      >
         
         {feedback && (
           <div
@@ -404,60 +443,105 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
             </p>
           </div>
         )}
+        {/* Botão discreto de Exclusão no final do card */}
+        <div className="pt-2 flex justify-center">
+          <button
+            id="btn-delete-service-bottom"
+            type="button"
+            onClick={() => setIsDeleteModalOpen(true)}
+            disabled={isProcessing}
+            className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-red-600 hover:text-red-700 hover:bg-red-50/80 active:scale-95 rounded-xl border border-red-200/70 transition-all cursor-pointer"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Excluir este serviço</span>
+          </button>
+        </div>
       </main>
 
-      {/* 3. RODAPÉ FIXO */}
-      <footer className="p-6 bg-white border-t border-[#E2E8F0] sticky bottom-0 z-20 flex items-center gap-3">
-        {service.status === 'aprovado' ? (
-          <>
-            <button
-              id="footer-btn-whatsapp"
-              type="button"
-              onClick={handleSendWhatsApp}
-              className="flex-1 h-13 bg-[#10B981] hover:bg-[#059669] active:scale-[0.98] text-white font-bold text-xs rounded-2xl transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <MessageCircle className="w-4 h-4" />
-              <span>Enviar WhatsApp</span>
-            </button>
+      {/* 3. RODAPÉ FIXO DE AÇÕES (APENAS PARA SERVIÇOS NÃO APROVADOS: REJEITAR / APROVAR) */}
+      {service.status !== 'aprovado' && (
+        <footer
+          className="fixed bottom-0 left-0 right-0 max-w-md mx-auto p-4 pb-6 bg-white border-t border-slate-100 flex items-center gap-3 w-full z-30 shadow-lg"
+          style={{ paddingBottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))' }}
+        >
+          <button
+            id="btn-reject-service"
+            type="button"
+            onClick={handleReject}
+            disabled={isProcessing || service.status === 'rejeitado'}
+            className="flex-1 h-12 border border-red-200 text-red-600 bg-red-50/50 hover:bg-red-100 active:scale-[0.98] font-semibold text-sm rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center"
+          >
+            Rejeitar
+          </button>
 
-            <button
-              id="footer-btn-pdf"
-              type="button"
-              onClick={handleExportPdf}
-              className="flex-1 h-13 bg-[#0F172A] hover:bg-[#1E293B] active:scale-[0.98] text-white font-bold text-xs rounded-2xl transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <FileText className="w-4 h-4 text-[#FBBF24]" />
-              <span>Notinha (PDF)</span>
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              id="btn-reject-service"
-              type="button"
-              onClick={handleReject}
-              disabled={isProcessing || service.status === 'rejeitado'}
-              className="flex-1 h-13 bg-white hover:bg-red-50 active:bg-red-100 border border-[#E2E8F0] text-[#0F172A] font-bold text-sm rounded-2xl transition-all disabled:opacity-50 cursor-pointer shadow-xs"
-            >
-              Rejeitar
-            </button>
+          <button
+            id="btn-approve-service"
+            type="button"
+            onClick={handleApprove}
+            disabled={isProcessing}
+            className="flex-1 h-12 bg-slate-900 text-white hover:bg-slate-800 active:scale-[0.98] font-semibold text-sm rounded-xl transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2"
+          >
+            {isProcessing ? (
+              <Loader2 className="w-4 h-4 animate-spin text-[#FBBF24]" />
+            ) : (
+              <span>Aprovar</span>
+            )}
+          </button>
+        </footer>
+      )}
 
-            <button
-              id="btn-approve-service"
-              type="button"
-              onClick={handleApprove}
-              disabled={isProcessing}
-              className="flex-1 h-13 bg-[#0F172A] hover:bg-[#1E293B] active:scale-[0.98] text-white font-bold text-sm rounded-2xl transition-all disabled:opacity-50 cursor-pointer shadow-sm flex items-center justify-center gap-2"
-            >
-              {isProcessing ? (
-                <Loader2 className="w-4 h-4 animate-spin text-[#FBBF24]" />
-              ) : (
-                <span>Aprovar</span>
-              )}
-            </button>
-          </>
-        )}
-      </footer>
+      {/* Modal de Confirmação de Exclusão */}
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center flex-shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-[#0F172A]">Excluir Serviço</h3>
+                <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                  Tem certeza que deseja excluir este serviço? Esta ação removerá o registro e atualizará os totais.
+                </p>
+              </div>
+            </div>
+
+            {/* Resumo do serviço a excluir */}
+            <div className="bg-slate-50 rounded-xl p-3 text-xs text-slate-700 space-y-1 border border-slate-200">
+              <p><span className="font-semibold text-slate-900">Cliente:</span> {service.client_name}</p>
+              <p><span className="font-semibold text-slate-900">Máquina:</span> {service.machine_name}</p>
+              <p><span className="font-semibold text-slate-900">Horas:</span> {calculatedHours}h • R$ {calculatedTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setIsDeleteModalOpen(false)}
+                disabled={isProcessing}
+                className="flex-1 h-11 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-all cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                id="btn-confirm-delete"
+                type="button"
+                onClick={handleDelete}
+                disabled={isProcessing}
+                className="flex-1 h-11 bg-red-600 hover:bg-red-700 active:scale-[0.98] text-white font-semibold text-xs rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isProcessing ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Confirmar Exclusão</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
