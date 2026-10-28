@@ -212,11 +212,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <Truck className="w-5 h-5 text-[#0F172A]" />
                     </div>
                     <div className="min-w-0">
-                      <p className="text-sm font-bold text-[#0F172A] truncate">
-                        {service.machine_name}
+                      <p className="text-base font-bold text-[#0F172A] truncate">
+                        {service.client_name}
                       </p>
-                      <p className="text-xs text-[#64748B] truncate">
-                        {service.client_name} • {service.total_hours}h
+                      <p className="text-xs text-[#64748B] font-medium truncate">
+                        {service.machine_name} • {service.total_hours}h
                       </p>
                       <p className="text-sm font-bold text-[#0F172A] mt-0.5">
                         R$ {service.total_amount?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}

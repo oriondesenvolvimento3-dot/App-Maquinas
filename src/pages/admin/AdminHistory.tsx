@@ -284,11 +284,11 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
                     <Truck className="w-4 h-4" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm font-bold text-[#0F172A] truncate">
+                    <p className="text-base font-bold text-[#0F172A] truncate">
                       {service.client_name}
                     </p>
-                    <p className="text-xs text-[#64748B] truncate">
-                      {formatDate(service.service_date)} • {service.total_hours}h
+                    <p className="text-xs text-[#64748B] font-medium truncate">
+                      {service.machine_name} • {service.total_hours}h • {formatDate(service.service_date)}
                     </p>
                   </div>
                 </div>

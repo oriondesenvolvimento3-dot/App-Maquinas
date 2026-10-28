@@ -4,17 +4,14 @@ import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { db } from '../../lib/dexieDb';
 import { syncPendingWorkLogs } from '../../services/syncService';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
-import { getActiveMachines } from '../../services/workLogService';
 import {
   Plus,
   Wifi,
   WifiOff,
   Clock,
-  Users,
-  DollarSign,
+  Calendar,
   RefreshCw,
   Shield,
-  Layers,
 } from 'lucide-react';
 
 interface OperatorHomeProps {
@@ -29,12 +26,9 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
   const { profile, isAdmin } = useAuth();
   const { isOnline } = useNetworkStatus();
 
-  // Métricas do Dashboard 2x2 (iniciadas em zero, exclusivamente calculadas dos dados reais)
-  const [machinesCount, setMachinesCount] = useState<number>(0);
-  const [clientsCount, setClientsCount] = useState<number>(0);
+  // Métricas do Operador (rotina diária de campo)
   const [servicesTodayCount, setServicesTodayCount] = useState<number>(0);
   const [totalHoursToday, setTotalHoursToday] = useState<number>(0);
-  const [totalAmountToday, setTotalAmountToday] = useState<number>(0);
   const [pendingSyncCount, setPendingSyncCount] = useState<number>(0);
 
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
@@ -45,47 +39,26 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
    */
   const loadDashboardMetrics = useCallback(async () => {
     try {
-      // 1. Conta máquinas ativas reais
-      const machines = await getActiveMachines(isOnline);
-      setMachinesCount(machines.length);
-
-      // 2. Apontamentos: Consulta Supabase se online e Dexie local
       const todayStr = new Date().toISOString().split('T')[0];
       const localLogs = await db.offline_work_logs.toArray();
       let logsForMetrics: Array<{
         service_date: string;
-        client_name: string;
         total_hours: number;
-        hourly_rate?: number;
-        total_amount?: number;
       }> = [];
 
       if (isOnline && isSupabaseConfigured()) {
         try {
           const { data, error } = await supabase
             .from('work_logs')
-            .select('*');
+            .select('service_date, total_hours');
 
           if (error) {
             console.error('[Supabase OperatorHome work_logs Error]:', error);
           } else if (data) {
-            let cachedMachines = await db.cached_machines.toArray();
-            if (cachedMachines.length === 0 && machines.length > 0) {
-              cachedMachines = machines;
-            }
-            const machineMap = new Map(cachedMachines.map((m) => [m.id, m]));
-
-            logsForMetrics = data.map((item: any) => {
-              const machineRate = Number(machineMap.get(item.machine_id)?.hourly_rate || 0);
-              const hours = Number(item.total_hours || 0);
-              return {
-                service_date: item.service_date,
-                client_name: item.client_name,
-                total_hours: hours,
-                hourly_rate: machineRate,
-                total_amount: hours * machineRate,
-              };
-            });
+            logsForMetrics = data.map((item: any) => ({
+              service_date: item.service_date,
+              total_hours: Number(item.total_hours || 0),
+            }));
           }
         } catch (err) {
           console.error('[Supabase OperatorHome work_logs catch]:', err);
@@ -94,38 +67,29 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
 
       // Se offline ou não obteve registros remotos, recorre aos logs locais do Dexie
       if (logsForMetrics.length === 0) {
-        logsForMetrics = localLogs;
+        logsForMetrics = localLogs.map((l) => ({
+          service_date: l.service_date,
+          total_hours: Number(l.total_hours || 0),
+        }));
       } else {
         // Inclui registros locais pendentes de envio
         const pendingLocal = localLogs.filter((l) => l.sync_status === 'pending');
         for (const pend of pendingLocal) {
-          logsForMetrics.push(pend);
+          logsForMetrics.push({
+            service_date: pend.service_date,
+            total_hours: Number(pend.total_hours || 0),
+          });
         }
       }
 
       const todayLogs = logsForMetrics.filter((log) => log.service_date === todayStr);
       setServicesTodayCount(todayLogs.length);
 
-      // Clientes únicos atendidos
-      const uniqueClients = new Set(
-        logsForMetrics
-          .map((log) => log.client_name?.trim())
-          .filter((name): name is string => Boolean(name && name.length > 0))
-      );
-      setClientsCount(uniqueClients.size);
-
-      // Soma de horas reais
+      // Soma de horas trabalhadas no dia
       const hours = todayLogs.reduce((acc, curr) => acc + (curr.total_hours || 0), 0);
       setTotalHoursToday(Number(hours.toFixed(1)));
 
-      // Estimativa financeira baseada nos lançamentos reais do dia
-      const amount = todayLogs.reduce((acc, curr) => {
-        const rate = curr.hourly_rate || 0;
-        return acc + (curr.total_amount !== undefined ? curr.total_amount : (curr.total_hours || 0) * rate);
-      }, 0);
-      setTotalAmountToday(amount);
-
-      // Apontamentos pendentes de sincronização (exclusivamente registros reais criados no aparelho)
+      // Apontamentos pendentes de sincronização
       const pending = localLogs.filter((log) => log.sync_status === 'pending');
       setPendingSyncCount(pending.length);
     } catch (err) {
@@ -273,42 +237,14 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
           </div>
         )}
 
-        {/* Grid 2x2 com os cartões brancos do protótipo */}
+        {/* Grid com apenas 2 cards focados na rotina de campo do operador */}
         <div className="grid grid-cols-2 gap-4">
           
-          {/* Card 1: Máquinas */}
+          {/* Card 1: Serviços hoje */}
           <div className="bg-white border border-[#E2E8F0] rounded-2xl p-4 shadow-sm flex flex-col justify-between h-28 hover:border-[#CBD5E1] transition-all">
             <div className="flex items-center gap-2 text-[#0F172A]">
               <div className="p-1.5 bg-[#F8FAFC] rounded-lg border border-[#E2E8F0]">
-                <Layers className="w-4 h-4 text-[#0F172A]" />
-              </div>
-            </div>
-            <div>
-              <p className="text-xs font-medium text-[#64748B]">Máquinas</p>
-              <p className="text-2xl font-bold text-[#0F172A]">{machinesCount}</p>
-            </div>
-          </div>
-
-          {/* Card 2: Clientes */}
-          <div className="bg-white border border-[#E2E8F0] rounded-2xl p-4 shadow-sm flex flex-col justify-between h-28 hover:border-[#CBD5E1] transition-all">
-            <div className="flex items-center gap-2 text-[#0F172A]">
-              <div className="p-1.5 bg-[#F8FAFC] rounded-lg border border-[#E2E8F0]">
-                <Users className="w-4 h-4 text-[#0F172A]" />
-              </div>
-            </div>
-            <div>
-              <p className="text-xs font-medium text-[#64748B]">Clientes</p>
-              <p className="text-2xl font-bold text-[#0F172A]">
-                {clientsCount}
-              </p>
-            </div>
-          </div>
-
-          {/* Card 3: Serviços hoje */}
-          <div className="bg-white border border-[#E2E8F0] rounded-2xl p-4 shadow-sm flex flex-col justify-between h-28 hover:border-[#CBD5E1] transition-all">
-            <div className="flex items-center gap-2 text-[#0F172A]">
-              <div className="p-1.5 bg-[#F8FAFC] rounded-lg border border-[#E2E8F0]">
-                <Clock className="w-4 h-4 text-[#0F172A]" />
+                <Calendar className="w-4 h-4 text-[#0F172A]" />
               </div>
             </div>
             <div>
@@ -317,28 +253,19 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
             </div>
           </div>
 
-          {/* Card 4: Total do dia (Horas para operador, R$ para admin) */}
+          {/* Card 2: Horas hoje */}
           <div className="bg-white border border-[#E2E8F0] rounded-2xl p-4 shadow-sm flex flex-col justify-between h-28 hover:border-[#CBD5E1] transition-all">
             <div className="flex items-center gap-2 text-[#0F172A]">
               <div className="p-1.5 bg-[#F8FAFC] rounded-lg border border-[#E2E8F0]">
-                {isAdmin ? (
-                  <DollarSign className="w-4 h-4 text-[#0F172A]" />
-                ) : (
-                  <Clock className="w-4 h-4 text-[#0F172A]" />
-                )}
+                <Clock className="w-4 h-4 text-[#0F172A]" />
               </div>
             </div>
             <div>
-              <p className="text-xs font-medium text-[#64748B]">Total do dia</p>
-              <p className="text-lg font-bold text-[#0F172A] truncate">
-                {isAdmin
-                  ? totalAmountToday > 0
-                    ? `R$ ${totalAmountToday.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-                    : 'R$ 0,00'
-                  : `${totalHoursToday}h`}
-              </p>
+              <p className="text-xs font-medium text-[#64748B]">Horas hoje</p>
+              <p className="text-2xl font-bold text-[#0F172A]">{totalHoursToday}h</p>
             </div>
           </div>
+
         </div>
       </main>
 
