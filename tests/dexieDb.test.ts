@@ -15,9 +15,9 @@ describe('DexieDB - Camada de Banco de Dados Offline', () => {
     await db.cached_profiles.clear();
   });
 
-  it('deve inicializar o banco retroscave_db na versão 2', () => {
+  it('deve inicializar o banco retroscave_db na versão 3', () => {
     expect(db.name).toBe('retroscave_db');
-    expect(db.verno).toBe(2);
+    expect(db.verno).toBe(3);
   });
 
   it('deve permitir consulta por server_id indexado no offline_work_logs', async () => {

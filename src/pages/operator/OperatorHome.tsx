@@ -3,7 +3,9 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { db } from '../../lib/dexieDb';
 import { syncPendingWorkLogs } from '../../services/syncService';
+import { getActiveWorkLogForOperator } from '../../services/workLogService';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
+import type { OfflineWorkLog } from '../../types/database';
 import {
   Plus,
   Wifi,
@@ -12,19 +14,26 @@ import {
   Calendar,
   RefreshCw,
   Shield,
+  Truck,
+  CheckCircle2,
 } from 'lucide-react';
 
 interface OperatorHomeProps {
   onNavigateToNewService: () => void;
+  onNavigateToFinishService?: (activeLog: OfflineWorkLog) => void;
   onNavigateToAdmin?: () => void;
 }
 
 export const OperatorHome: React.FC<OperatorHomeProps> = ({
   onNavigateToNewService,
+  onNavigateToFinishService,
   onNavigateToAdmin,
 }) => {
-  const { profile, isAdmin } = useAuth();
+  const { profile, user, isAdmin } = useAuth();
   const { isOnline } = useNetworkStatus();
+
+  // Serviço ativo em andamento para o operador
+  const [activeService, setActiveService] = useState<OfflineWorkLog | null>(null);
 
   // Métricas do Operador (rotina diária de campo)
   const [servicesTodayCount, setServicesTodayCount] = useState<number>(0);
@@ -33,6 +42,21 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
 
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
+
+  const operatorId = profile?.id || user?.id || '';
+
+  /**
+   * Consulta se há serviço ativo 'em_andamento' para este operador
+   */
+  const checkActiveService = useCallback(async () => {
+    if (!operatorId) return;
+    try {
+      const active = await getActiveWorkLogForOperator(operatorId, isOnline);
+      setActiveService(active);
+    } catch (err) {
+      console.warn('[OperatorHome] Falha ao verificar serviço ativo:', err);
+    }
+  }, [operatorId, isOnline]);
 
   /**
    * Carrega estatísticas do dia a partir dos dados reais (Dexie / Supabase)
@@ -44,13 +68,14 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
       let logsForMetrics: Array<{
         service_date: string;
         total_hours: number;
+        status?: string;
       }> = [];
 
       if (isOnline && isSupabaseConfigured()) {
         try {
           const { data, error } = await supabase
             .from('work_logs')
-            .select('service_date, total_hours');
+            .select('service_date, total_hours, status');
 
           if (error) {
             console.error('[Supabase OperatorHome work_logs Error]:', error);
@@ -58,6 +83,7 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
             logsForMetrics = data.map((item: any) => ({
               service_date: item.service_date,
               total_hours: Number(item.total_hours || 0),
+              status: item.status,
             }));
           }
         } catch (err) {
@@ -70,19 +96,24 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
         logsForMetrics = localLogs.map((l) => ({
           service_date: l.service_date,
           total_hours: Number(l.total_hours || 0),
+          status: l.status,
         }));
       } else {
         // Inclui registros locais pendentes de envio
-        const pendingLocal = localLogs.filter((l) => l.sync_status === 'pending');
+        const pendingLocal = localLogs.filter((l) => l.sync_status === 'pending' || l.synced === false);
         for (const pend of pendingLocal) {
           logsForMetrics.push({
             service_date: pend.service_date,
             total_hours: Number(pend.total_hours || 0),
+            status: pend.status,
           });
         }
       }
 
-      const todayLogs = logsForMetrics.filter((log) => log.service_date === todayStr);
+      // Filtra apenas serviços finalizados do dia (não contar serviços em andamento como finalizados)
+      const todayLogs = logsForMetrics.filter(
+        (log) => log.service_date === todayStr && log.status !== 'em_andamento'
+      );
       setServicesTodayCount(todayLogs.length);
 
       // Soma de horas trabalhadas no dia
@@ -90,7 +121,7 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
       setTotalHoursToday(Number(hours.toFixed(1)));
 
       // Apontamentos pendentes de sincronização
-      const pending = localLogs.filter((log) => log.sync_status === 'pending');
+      const pending = localLogs.filter((log) => log.sync_status === 'pending' || log.synced === false);
       setPendingSyncCount(pending.length);
     } catch (err) {
       console.warn('[OperatorHome] Erro ao carregar métricas:', err);
@@ -98,8 +129,9 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
   }, [isOnline]);
 
   useEffect(() => {
+    checkActiveService();
     loadDashboardMetrics();
-  }, [loadDashboardMetrics]);
+  }, [checkActiveService, loadDashboardMetrics]);
 
   /**
    * Aciona a sincronização manual dos apontamentos pendentes
@@ -110,6 +142,7 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
     setSyncFeedback(null);
     try {
       const synced = await syncPendingWorkLogs();
+      await checkActiveService();
       await loadDashboardMetrics();
       setSyncFeedback(
         synced > 0
@@ -121,6 +154,17 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
     } finally {
       setIsSyncing(false);
       setTimeout(() => setSyncFeedback(null), 4000);
+    }
+  };
+
+  // Formata o horário do início do trabalho
+  const formatStartTime = (isoString?: string) => {
+    if (!isoString) return '--:--';
+    try {
+      const date = new Date(isoString);
+      return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return '--:--';
     }
   };
 
@@ -183,24 +227,90 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
             Olá{profile?.full_name ? `, ${profile.full_name.split(' ')[0]}` : ''}!
           </h1>
           <p className="text-sm font-medium text-[#64748B] leading-relaxed">
-            Registre os serviços das máquinas de forma rápida e simples.
+            {activeService
+              ? 'Você possui um serviço em andamento. Finalize-o ao concluir o expediente.'
+              : 'Registre os serviços das máquinas de forma rápida e simples.'}
           </p>
         </div>
 
-        {/* Botão de Ação Primária Amarelo: + Novo Serviço */}
-        <button
-          id="btn-new-service"
-          type="button"
-          onClick={onNavigateToNewService}
-          className="w-full h-14 bg-[#FBBF24] hover:bg-[#F59E0B] active:scale-[0.98] text-[#0F172A] font-bold text-base rounded-2xl shadow-sm hover:shadow-md transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer"
-        >
-          <div className="w-6 h-6 rounded-full bg-[#0F172A] text-[#FBBF24] flex items-center justify-center">
-            <Plus className="w-4 h-4 stroke-[3]" />
-          </div>
-          <span>Novo Serviço</span>
-        </button>
+        {/* 3. CARD DE SERVIÇO EM ANDAMENTO OU BOTÃO NOVO SERVIÇO */}
+        {activeService ? (
+          /* CARD DE ALERTA EM DESTAQUE VISUAL COM PULSO */
+          <div className="bg-gradient-to-br from-amber-500/15 via-amber-500/5 to-white border-2 border-[#F59E0B] rounded-3xl p-5 shadow-md space-y-4 animate-fade-in">
+            {/* Header com Indicador Pulsando */}
+            <div className="flex items-center justify-between pb-1 border-b border-amber-200/60">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-500 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-600"></span>
+                </span>
+                <span className="text-xs font-black uppercase tracking-wider text-amber-900">
+                  Em andamento
+                </span>
+              </div>
+              <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-200/80 text-amber-900">
+                CHECK-IN ATIVO
+              </span>
+            </div>
 
-        {/* Card Alerta de Sincronização Pendente (se houver logs no aparelho aguardando conexão) */}
+            {/* Informações da Máquina */}
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-white border border-amber-200 rounded-2xl text-[#0F172A] shadow-xs shrink-0">
+                <Truck className="w-6 h-6 text-[#F59E0B]" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  Equipamento
+                </p>
+                <p className="text-lg font-extrabold text-[#0F172A] truncate">
+                  {activeService.machine_name}
+                </p>
+              </div>
+            </div>
+
+            {/* Grid com Horímetro Inicial e Horário de Início */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-white border border-amber-200/70 rounded-xl p-3 shadow-2xs">
+                <p className="text-[11px] font-medium text-[#64748B]">Horímetro Inicial</p>
+                <p className="text-base font-extrabold text-[#0F172A]">
+                  {Number(activeService.start_hours || 0).toFixed(1)}h
+                </p>
+              </div>
+              <div className="bg-white border border-amber-200/70 rounded-xl p-3 shadow-2xs">
+                <p className="text-[11px] font-medium text-[#64748B]">Iniciado às</p>
+                <p className="text-base font-extrabold text-[#0F172A]">
+                  {formatStartTime(activeService.started_at)}
+                </p>
+              </div>
+            </div>
+
+            {/* Botão em Destaque Largo: Finalizar Serviço */}
+            <button
+              id="btn-finish-service"
+              type="button"
+              onClick={() => onNavigateToFinishService?.(activeService)}
+              className="w-full h-12 bg-[#0F172A] hover:bg-[#1E293B] active:scale-[0.98] text-white font-extrabold text-base rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <CheckCircle2 className="w-5 h-5 text-[#FBBF24]" />
+              <span>Finalizar Serviço</span>
+            </button>
+          </div>
+        ) : (
+          /* Botão de Ação Primária Amarelo: + Novo Serviço (oculto quando há serviço ativo) */
+          <button
+            id="btn-new-service"
+            type="button"
+            onClick={onNavigateToNewService}
+            className="w-full h-14 bg-[#FBBF24] hover:bg-[#F59E0B] active:scale-[0.98] text-[#0F172A] font-bold text-base rounded-2xl shadow-sm hover:shadow-md transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <div className="w-6 h-6 rounded-full bg-[#0F172A] text-[#FBBF24] flex items-center justify-center">
+              <Plus className="w-4 h-4 stroke-[3]" />
+            </div>
+            <span>Novo Serviço</span>
+          </button>
+        )}
+
+        {/* Card Alerta de Sincronização Pendente */}
         {pendingSyncCount > 0 && (
           <div className="bg-[#FEF3C7] border border-[#FDE68A] rounded-2xl p-4 text-[#B45309] shadow-sm animate-fade-in flex flex-col gap-2">
             <div className="flex items-center justify-between">
@@ -271,7 +381,6 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
 
       {/* 3. RODAPÉ ESTILIZADO COM ONDA E SLOGAN DO PROTÓTIPO */}
       <footer className="relative w-full px-6 pb-6 pt-4 text-center z-10 flex flex-col items-center">
-        {/* Curva decorativa suave idêntica ao protótipo */}
         <div className="w-full max-w-[280px] h-6 mb-3 opacity-80">
           <svg viewBox="0 0 280 24" fill="none" className="w-full h-full">
             <path

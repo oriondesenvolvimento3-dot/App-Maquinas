@@ -52,7 +52,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     });
   }, []);
 
-  const getStatusBadge = (status: 'pendente' | 'aprovado' | 'rejeitado') => {
+  const getStatusBadge = (status: 'pendente' | 'aprovado' | 'rejeitado' | 'em_andamento') => {
     switch (status) {
       case 'aprovado':
         return (
@@ -70,6 +70,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         return (
           <span className="px-2.5 py-1 bg-[#FEE2E2] text-[#991B1B] rounded-full text-xs font-semibold">
             Rejeitado
+          </span>
+        );
+      case 'em_andamento':
+        return (
+          <span className="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-xs font-semibold inline-flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+            Em andamento
           </span>
         );
     }

@@ -5,7 +5,7 @@ import {
   setCachedMachines,
   setCachedProfiles,
 } from '../lib/dexieDb';
-import type { Machine, Profile } from '../types/database';
+import type { Machine, Profile, OfflineWorkLog, Database } from '../types/database';
 
 export interface SyncResult {
   syncedCount: number;
@@ -17,6 +17,37 @@ export interface CacheResult {
   machinesCount: number;
   profilesCount: number;
   error?: string;
+}
+
+type WorkLogInsert = Database['public']['Tables']['work_logs']['Insert'];
+type WorkLogUpdate = Database['public']['Tables']['work_logs']['Update'];
+
+/**
+ * Remove campos locais e exclusivos do Dexie/cliente antes de enviar ao Supabase.
+ * Envia estritamente as colunas suportadas pela tabela remota `work_logs`.
+ */
+export function sanitizeWorkLogForSupabase(log: Partial<OfflineWorkLog> & Record<string, any>): WorkLogInsert {
+  const payload: WorkLogInsert = {
+    machine_id: log.machine_id!,
+    operator_id: log.operator_id!,
+    client_name: log.client_name ? String(log.client_name).trim() : '',
+    service_date: log.service_date!,
+    start_hours: Number(log.start_hours ?? log.initial_hour ?? 0),
+    end_hours: Number(log.end_hours ?? log.final_hour ?? log.start_hours ?? 0),
+    observations: log.observations?.trim() || log.notes?.trim() || null,
+    status: log.status || 'pendente',
+    client_phone: log.client_phone ? String(log.client_phone).trim() : null,
+  };
+
+  if (log.created_at) {
+    payload.created_at = log.created_at;
+  }
+
+  // ATENÇÃO:
+  // - NÃO enviar 'started_at' (não existe na tabela remota do Supabase)
+  // - NÃO enviar 'total_hours' (é coluna gerada no Postgres - GENERATED ALWAYS)
+  // - NÃO enviar campos de UI: 'machine_name', 'operator_name', 'sync_status', 'synced', 'id', 'localId'
+  return payload;
 }
 
 /**
@@ -38,35 +69,51 @@ export async function syncPendingWorkLogs(): Promise<number> {
     try {
       if (!log.id) continue;
 
-      // Monta o payload do registro para o Supabase (sem total_hours gerado no banco)
-      const payload = {
-        machine_id: log.machine_id,
-        operator_id: log.operator_id,
-        client_name: log.client_name,
-        client_phone: log.client_phone || null,
-        service_date: log.service_date,
-        start_hours: log.start_hours,
-        end_hours: log.end_hours,
-        observations: log.observations,
-        status: 'pendente' as const,
-        created_at: log.created_at,
-      };
+      if (log.server_id) {
+        // Registro já possui ID no servidor (ex: iniciado online e finalizado offline) -> UPDATE
+        const updatePayload: WorkLogUpdate = {
+          client_name: log.client_name ? String(log.client_name).trim() : '',
+          client_phone: log.client_phone ? String(log.client_phone).trim() : null,
+          service_date: log.service_date,
+          start_hours: Number(log.start_hours ?? (log as any).initial_hour ?? 0),
+          end_hours: Number(log.end_hours ?? (log as any).final_hour ?? 0),
+          observations: log.observations?.trim() || (log as any).notes?.trim() || null,
+          status: log.status || 'pendente',
+          updated_at: new Date().toISOString(),
+        };
 
-      const { data, error } = await supabase
-        .from('work_logs')
-        .insert(payload)
-        .select('id')
-        .single();
+        const { error } = await supabase
+          .from('work_logs')
+          .update(updatePayload)
+          .eq('id', log.server_id);
 
-      if (error) {
-        console.error(`[SyncService] Erro ao sincronizar log local #${log.id}:`, error.message);
-        continue;
-      }
+        if (error) {
+          console.error(`[SyncService] Erro ao atualizar log local #${log.id} no Supabase:`, error.message);
+          continue;
+        }
 
-      if (data?.id) {
-        // Marca o registro como sincronizado no Dexie com o UUID do servidor
-        await markWorkLogAsSynced(log.id, data.id);
+        await markWorkLogAsSynced(log.id, log.server_id);
         successCount++;
+      } else {
+        // Novo registro criado offline -> INSERT limpo sem started_at
+        const insertPayload = sanitizeWorkLogForSupabase(log);
+
+        const { data, error } = await supabase
+          .from('work_logs')
+          .insert(insertPayload)
+          .select('id')
+          .single();
+
+        if (error) {
+          console.error(`[SyncService] Erro ao sincronizar log local #${log.id}:`, error.message);
+          continue;
+        }
+
+        if (data?.id) {
+          // Marca o registro como sincronizado no Dexie com o UUID do servidor e synced: true
+          await markWorkLogAsSynced(log.id, data.id);
+          successCount++;
+        }
       }
     } catch (err) {
       console.error(`[SyncService] Falha inesperada ao processar log #${log.id}:`, err);
@@ -79,6 +126,11 @@ export async function syncPendingWorkLogs(): Promise<number> {
 
   return successCount;
 }
+
+/**
+ * Alias para compatibilidade reversa com chamadas de sincronização
+ */
+export const syncOfflineServices = syncPendingWorkLogs;
 
 /**
  * Baixa as máquinas ativas e perfis de operadores do Supabase e salva no Dexie.

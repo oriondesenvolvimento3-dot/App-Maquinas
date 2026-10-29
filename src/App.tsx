@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Welcome } from './pages/Welcome';
 import { OperatorHome } from './pages/operator/OperatorHome';
 import { NewServiceForm } from './pages/operator/NewServiceForm';
+import { FinishServiceForm } from './pages/operator/FinishServiceForm';
 import { ServiceSuccess } from './pages/operator/ServiceSuccess';
 import { AdminDashboard } from './pages/admin/AdminDashboard';
 import { AdminServiceList } from './pages/admin/AdminServiceList';
@@ -10,10 +11,12 @@ import { AdminServiceDetail } from './pages/admin/AdminServiceDetail';
 import { AdminHistory } from './pages/admin/AdminHistory';
 import { MachineManagement } from './pages/admin/MachineManagement';
 import type { WorkLogFormData } from './services/workLogService';
+import type { OfflineWorkLog } from './types/database';
 
 export type AppRoute =
   | 'home'
   | 'new-service'
+  | 'finish-service'
   | 'service-success'
   | 'admin-dashboard'
   | 'admin-services'
@@ -27,6 +30,7 @@ export type AppRoute =
 const AppNavigator: React.FC = () => {
   const { user, profile, loading } = useAuth();
   const [currentRoute, setCurrentRoute] = useState<AppRoute>('home');
+  const [activeServiceToFinish, setActiveServiceToFinish] = useState<OfflineWorkLog | null>(null);
   const [lastRegisteredService, setLastRegisteredService] = useState<WorkLogFormData | null>(null);
   const [selectedServiceId, setSelectedServiceId] = useState<string | number | null>(null);
 
@@ -57,7 +61,31 @@ const AppNavigator: React.FC = () => {
       return (
         <NewServiceForm
           onBack={() => setCurrentRoute('home')}
+          onSuccess={() => {
+            setCurrentRoute('home');
+          }}
+        />
+      );
+
+    case 'finish-service':
+      if (!activeServiceToFinish) {
+        return (
+          <OperatorHome
+            onNavigateToNewService={() => setCurrentRoute('new-service')}
+            onNavigateToFinishService={(activeLog) => {
+              setActiveServiceToFinish(activeLog);
+              setCurrentRoute('finish-service');
+            }}
+            onNavigateToAdmin={() => setCurrentRoute('admin-dashboard')}
+          />
+        );
+      }
+      return (
+        <FinishServiceForm
+          activeLog={activeServiceToFinish}
+          onBack={() => setCurrentRoute('home')}
           onSuccess={(formData) => {
+            setActiveServiceToFinish(null);
             setLastRegisteredService(formData);
             setCurrentRoute('service-success');
           }}
@@ -69,6 +97,10 @@ const AppNavigator: React.FC = () => {
         return (
           <OperatorHome
             onNavigateToNewService={() => setCurrentRoute('new-service')}
+            onNavigateToFinishService={(activeLog) => {
+              setActiveServiceToFinish(activeLog);
+              setCurrentRoute('finish-service');
+            }}
             onNavigateToAdmin={() => setCurrentRoute('admin-dashboard')}
           />
         );
@@ -159,6 +191,10 @@ const AppNavigator: React.FC = () => {
       return (
         <OperatorHome
           onNavigateToNewService={() => setCurrentRoute('new-service')}
+          onNavigateToFinishService={(activeLog) => {
+            setActiveServiceToFinish(activeLog);
+            setCurrentRoute('finish-service');
+          }}
           onNavigateToAdmin={() => setCurrentRoute('admin-dashboard')}
         />
       );

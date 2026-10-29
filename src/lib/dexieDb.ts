@@ -36,6 +36,16 @@ export class RetroscaveDexieDB extends Dexie {
       cached_machines: 'id, name, active',
       cached_profiles: 'id, role',
     });
+
+    /**
+     * Definição de esquema da versão 3:
+     * - Indexa 'status' para permitir consultas rápidas de serviços em andamento
+     */
+    this.version(3).stores({
+      offline_work_logs: '++id, server_id, machine_id, operator_id, service_date, sync_status, status, created_at',
+      cached_machines: 'id, name, active',
+      cached_profiles: 'id, role',
+    });
   }
 }
 
@@ -57,6 +67,8 @@ export async function saveOfflineWorkLog(
   const newLog: OfflineWorkLog = {
     ...entry,
     sync_status: 'pending',
+    synced: false,
+    status: entry.status || 'pendente',
     created_at: new Date().toISOString(),
   };
 
@@ -68,10 +80,8 @@ export async function saveOfflineWorkLog(
  * Recupera todos os apontamentos que ainda aguardam sincronização com o Supabase
  */
 export async function getPendingWorkLogs(): Promise<OfflineWorkLog[]> {
-  return await db.offline_work_logs
-    .where('sync_status')
-    .equals('pending')
-    .toArray();
+  const all = await db.offline_work_logs.toArray();
+  return all.filter((log) => log.sync_status === 'pending' || log.synced === false);
 }
 
 /**
@@ -83,6 +93,7 @@ export async function markWorkLogAsSynced(
 ): Promise<number> {
   return await db.offline_work_logs.update(localId, {
     sync_status: 'synced',
+    synced: true,
     server_id: serverId,
     synced_at: new Date().toISOString(),
   });
@@ -96,6 +107,30 @@ export async function getAllOfflineWorkLogs(): Promise<OfflineWorkLog[]> {
     .orderBy('id')
     .reverse()
     .toArray();
+}
+
+/**
+ * Retorna o serviço atualmente em andamento de um operador no Dexie
+ */
+export async function getActiveWorkLogInDexie(
+  operatorId: string
+): Promise<OfflineWorkLog | undefined> {
+  const allInProgress = await db.offline_work_logs
+    .where('status')
+    .equals('em_andamento')
+    .toArray();
+
+  return allInProgress.find((log) => log.operator_id === operatorId);
+}
+
+/**
+ * Atualiza um apontamento local pelo ID
+ */
+export async function updateOfflineWorkLog(
+  id: number,
+  changes: Partial<OfflineWorkLog>
+): Promise<number> {
+  return await db.offline_work_logs.update(id, changes);
 }
 
 /**

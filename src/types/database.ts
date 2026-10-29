@@ -5,7 +5,7 @@
 
 export type UserRole = 'operator' | 'admin';
 
-export type WorkLogStatus = 'pendente' | 'aprovado' | 'rejeitado';
+export type WorkLogStatus = 'pendente' | 'aprovado' | 'rejeitado' | 'em_andamento';
 
 export type FinancialStatus = 'pago' | 'pendente' | 'cancelado';
 
@@ -54,7 +54,8 @@ export interface WorkLog {
   end_hours: number; // Horômetro final do serviço
   total_hours: number; // Horas totais calculadas (end_hours - start_hours)
   observations: string | null; // Observações opcionais do operador
-  status: WorkLogStatus; // 'pendente' | 'aprovado' | 'rejeitado'
+  status: WorkLogStatus; // 'pendente' | 'aprovado' | 'rejeitado' | 'em_andamento'
+  started_at?: string; // Horário de início do serviço
   created_at: string; // Timestamp ISO
   updated_at?: string;
 
@@ -107,7 +108,9 @@ export interface OfflineWorkLog {
   total_hours: number;
   observations: string | null;
   sync_status: SyncStatus; // 'pending' | 'synced'
-  status?: WorkLogStatus; // 'pendente' | 'aprovado' | 'rejeitado'
+  synced?: boolean; // true quando sincronizado com o Supabase
+  status?: WorkLogStatus; // 'pendente' | 'aprovado' | 'rejeitado' | 'em_andamento'
+  started_at?: string; // Horário de início do serviço (exclusivo do Dexie / controle local)
   hourly_rate?: number;
   total_amount?: number;
   created_at: string;

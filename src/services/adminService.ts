@@ -1,6 +1,6 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { db } from '../lib/dexieDb';
-import type { Machine } from '../types/database';
+import type { Machine, WorkLogStatus } from '../types/database';
 
 export interface AdminMetrics {
   totalServices: number;
@@ -9,7 +9,7 @@ export interface AdminMetrics {
   pendingAmount: number;
 }
 
-export type WorkLogFilter = 'todos' | 'aprovado' | 'pendente' | 'rejeitado';
+export type WorkLogFilter = 'todos' | 'aprovado' | 'pendente' | 'rejeitado' | 'em_andamento';
 
 export interface ExtendedWorkLog {
   id: string | number;
@@ -25,7 +25,7 @@ export interface ExtendedWorkLog {
   end_hours: number;
   total_hours: number;
   observations: string | null;
-  status: 'pendente' | 'aprovado' | 'rejeitado';
+  status: WorkLogStatus;
   hourly_rate?: number;
   total_amount?: number;
   created_at: string;
