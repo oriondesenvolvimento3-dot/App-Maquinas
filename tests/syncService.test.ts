@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as dexieLib from '../src/lib/dexieDb';
 import {
+  syncPendingServices,
   syncPendingWorkLogs,
   syncOfflineServices,
   sanitizeWorkLogForSupabase,
   cacheRemoteMachinesAndProfiles,
+  initAutoSync,
+  SYNC_COMPLETE_EVENT,
 } from '../src/services/syncService';
 import { supabase } from '../src/lib/supabase';
 import { db } from '../src/lib/dexieDb';
@@ -105,8 +108,9 @@ describe('SyncService - Sincronização Dexie <-> Supabase', () => {
     } as any);
 
     // 2. Executa a sincronização
-    const syncedCount = await syncOfflineServices();
+    const syncedCount = await syncPendingServices();
     expect(syncedCount).toBe(1);
+    expect(syncOfflineServices).toBe(syncPendingServices);
 
     // 3. Garante que o payload enviado não possui started_at
     expect(sentPayload).toBeDefined();
@@ -133,5 +137,51 @@ describe('SyncService - Sincronização Dexie <-> Supabase', () => {
     expect(result.machinesCount).toBe(0);
     expect(result.profilesCount).toBe(0);
     expect(result.error).toBeDefined();
+  });
+
+  it('deve disparar evento de conclusão com mensagem de Toast e reagir ao evento online automaticamente', async () => {
+    await dexieLib.saveOfflineWorkLog({
+      machine_id: 'mach-01',
+      machine_name: 'Retroescavadeira 01',
+      operator_id: 'op-01',
+      operator_name: 'João',
+      client_name: 'Fazenda Boa Vista',
+      service_date: '2026-10-30',
+      start_hours: 300,
+      end_hours: 305,
+      total_hours: 5,
+      observations: null,
+      status: 'pendente',
+    });
+
+    vi.spyOn(supabase, 'from').mockReturnValue({
+      insert: () => ({
+        select: () => ({
+          single: () => Promise.resolve({ data: { id: 'uuid-auto-sync-1' }, error: null }),
+        }),
+      }),
+    } as any);
+
+    let receivedDetail: any = null;
+    const handleEvent = (e: Event) => {
+      receivedDetail = (e as CustomEvent).detail;
+    };
+    window.addEventListener(SYNC_COMPLETE_EVENT, handleEvent);
+
+    const cleanup = initAutoSync();
+    window.dispatchEvent(new Event('online'));
+
+    // Aguarda processamento assíncrono do listener
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(receivedDetail).toBeDefined();
+    expect(receivedDetail.syncedCount).toBe(1);
+    expect(receivedDetail.message).toBe('1 serviço(s) sincronizado(s) com a nuvem!');
+
+    const pendingRemaining = await dexieLib.getPendingWorkLogs();
+    expect(pendingRemaining.length).toBe(0);
+
+    cleanup();
+    window.removeEventListener(SYNC_COMPLETE_EVENT, handleEvent);
   });
 });

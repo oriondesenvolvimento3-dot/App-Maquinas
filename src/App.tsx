@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Welcome } from './pages/Welcome';
 import { OperatorHome } from './pages/operator/OperatorHome';
@@ -10,8 +10,14 @@ import { AdminServiceList } from './pages/admin/AdminServiceList';
 import { AdminServiceDetail } from './pages/admin/AdminServiceDetail';
 import { AdminHistory } from './pages/admin/AdminHistory';
 import { MachineManagement } from './pages/admin/MachineManagement';
+import {
+  initAutoSync,
+  SYNC_COMPLETE_EVENT,
+  type SyncCompleteEventDetail,
+} from './services/syncService';
 import type { WorkLogFormData } from './services/workLogService';
 import type { OfflineWorkLog } from './types/database';
+import { CheckCircle2 } from 'lucide-react';
 
 export type AppRoute =
   | 'home'
@@ -202,8 +208,46 @@ const AppNavigator: React.FC = () => {
 };
 
 export function App() {
+  const [syncToast, setSyncToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    const cleanupAutoSync = initAutoSync();
+
+    const handleSyncComplete = (event: Event) => {
+      const customEvent = event as CustomEvent<SyncCompleteEventDetail>;
+      const message =
+        customEvent.detail?.message ||
+        `${customEvent.detail?.syncedCount ?? 1} serviço(s) sincronizado(s) com a nuvem!`;
+      setSyncToast(message);
+    };
+
+    window.addEventListener(SYNC_COMPLETE_EVENT, handleSyncComplete);
+    return () => {
+      cleanupAutoSync();
+      window.removeEventListener(SYNC_COMPLETE_EVENT, handleSyncComplete);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!syncToast) return;
+    const timer = setTimeout(() => {
+      setSyncToast(null);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [syncToast]);
+
   return (
     <AuthProvider>
+      {syncToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[calc(100%-2rem)] bg-[#0F172A] text-white px-4 py-3 rounded-2xl shadow-xl border border-slate-700 flex items-center gap-2.5 text-xs font-bold animate-fade-in"
+        >
+          <CheckCircle2 className="w-4 h-4 text-[#FBBF24] shrink-0" />
+          <span>{syncToast}</span>
+        </div>
+      )}
       <AppNavigator />
     </AuthProvider>
   );

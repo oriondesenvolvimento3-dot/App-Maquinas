@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto';
 
 if (typeof globalThis.window === 'undefined') {
+  const eventTarget = new EventTarget();
   (globalThis as any).window = {
     location: {
       origin: 'http://localhost:3000',
@@ -8,6 +9,9 @@ if (typeof globalThis.window === 'undefined') {
     },
     btoa: (str: string) => (globalThis as any).Buffer?.from(str, 'binary').toString('base64'),
     atob: (b64: string) => (globalThis as any).Buffer?.from(b64, 'base64').toString('binary'),
+    addEventListener: eventTarget.addEventListener.bind(eventTarget),
+    removeEventListener: eventTarget.removeEventListener.bind(eventTarget),
+    dispatchEvent: eventTarget.dispatchEvent.bind(eventTarget),
   };
 }
 

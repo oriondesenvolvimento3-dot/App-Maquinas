@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   fetchAdminWorkLogs,
   type ExtendedWorkLog,
   type WorkLogFilter,
 } from '../../services/adminService';
+import { SYNC_COMPLETE_EVENT } from '../../services/syncService';
 import {
   Truck,
   Home,
@@ -30,12 +31,21 @@ export const AdminServiceList: React.FC<AdminServiceListProps> = ({
   const [services, setServices] = useState<ExtendedWorkLog[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  useEffect(() => {
+  const loadServices = useCallback(() => {
     setIsLoading(true);
     fetchAdminWorkLogs(activeFilter)
       .then(setServices)
       .finally(() => setIsLoading(false));
   }, [activeFilter]);
+
+  useEffect(() => {
+    loadServices();
+
+    window.addEventListener(SYNC_COMPLETE_EVENT, loadServices);
+    return () => {
+      window.removeEventListener(SYNC_COMPLETE_EVENT, loadServices);
+    };
+  }, [loadServices]);
 
   const getStatusBadge = (status: 'pendente' | 'aprovado' | 'rejeitado' | 'em_andamento') => {
     switch (status) {

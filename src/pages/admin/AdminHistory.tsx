@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   fetchAdminWorkLogs,
   type ExtendedWorkLog,
 } from '../../services/adminService';
+import { SYNC_COMPLETE_EVENT } from '../../services/syncService';
 import {
   generateServiceReportPdf,
   type ReportItem,
@@ -52,12 +53,21 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
 
   const [pdfSuccessMessage, setPdfSuccessMessage] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadHistory = useCallback(() => {
     setIsLoading(true);
     fetchAdminWorkLogs('todos')
       .then(setAllServices)
       .finally(() => setIsLoading(false));
   }, []);
+
+  useEffect(() => {
+    loadHistory();
+
+    window.addEventListener(SYNC_COMPLETE_EVENT, loadHistory);
+    return () => {
+      window.removeEventListener(SYNC_COMPLETE_EVENT, loadHistory);
+    };
+  }, [loadHistory]);
 
   // Lista de clientes únicos para o seletor
   const uniqueClients = useMemo(() => {

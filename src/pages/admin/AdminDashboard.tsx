@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   fetchAdminMetrics,
   fetchAdminWorkLogs,
   type AdminMetrics,
   type ExtendedWorkLog,
 } from '../../services/adminService';
+import { SYNC_COMPLETE_EVENT } from '../../services/syncService';
 import {
   Calendar,
   Clock,
@@ -45,12 +46,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const [recentServices, setRecentServices] = useState<ExtendedWorkLog[]>([]);
 
-  useEffect(() => {
+  const loadDashboardData = useCallback(() => {
     fetchAdminMetrics().then(setMetrics);
     fetchAdminWorkLogs('todos').then((logs) => {
       setRecentServices(logs.slice(0, 4));
     });
   }, []);
+
+  useEffect(() => {
+    loadDashboardData();
+
+    window.addEventListener(SYNC_COMPLETE_EVENT, loadDashboardData);
+    return () => {
+      window.removeEventListener(SYNC_COMPLETE_EVENT, loadDashboardData);
+    };
+  }, [loadDashboardData]);
 
   const getStatusBadge = (status: 'pendente' | 'aprovado' | 'rejeitado' | 'em_andamento') => {
     switch (status) {

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { db } from '../../lib/dexieDb';
-import { syncPendingWorkLogs } from '../../services/syncService';
+import { SYNC_COMPLETE_EVENT } from '../../services/syncService';
 import { getActiveWorkLogForOperator } from '../../services/workLogService';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import type { OfflineWorkLog } from '../../types/database';
@@ -12,7 +12,6 @@ import {
   WifiOff,
   Clock,
   Calendar,
-  RefreshCw,
   Shield,
   Truck,
   CheckCircle2,
@@ -38,10 +37,6 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
   // Métricas do Operador (rotina diária de campo)
   const [servicesTodayCount, setServicesTodayCount] = useState<number>(0);
   const [totalHoursToday, setTotalHoursToday] = useState<number>(0);
-  const [pendingSyncCount, setPendingSyncCount] = useState<number>(0);
-
-  const [isSyncing, setIsSyncing] = useState<boolean>(false);
-  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
 
   const operatorId = profile?.id || user?.id || '';
 
@@ -119,10 +114,6 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
       // Soma de horas trabalhadas no dia
       const hours = todayLogs.reduce((acc, curr) => acc + (curr.total_hours || 0), 0);
       setTotalHoursToday(Number(hours.toFixed(1)));
-
-      // Apontamentos pendentes de sincronização
-      const pending = localLogs.filter((log) => log.sync_status === 'pending' || log.synced === false);
-      setPendingSyncCount(pending.length);
     } catch (err) {
       console.warn('[OperatorHome] Erro ao carregar métricas:', err);
     }
@@ -133,29 +124,20 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
     loadDashboardMetrics();
   }, [checkActiveService, loadDashboardMetrics]);
 
-  /**
-   * Aciona a sincronização manual dos apontamentos pendentes
-   */
-  const handleManualSync = async () => {
-    if (!isOnline || isSyncing) return;
-    setIsSyncing(true);
-    setSyncFeedback(null);
-    try {
-      const synced = await syncPendingWorkLogs();
-      await checkActiveService();
-      await loadDashboardMetrics();
-      setSyncFeedback(
-        synced > 0
-          ? `${synced} apontamento(s) sincronizado(s) com sucesso!`
-          : 'Tudo pronto! Banco sincronizado com a nuvem.'
-      );
-    } catch {
-      setSyncFeedback('Erro ao conectar ao Supabase.');
-    } finally {
-      setIsSyncing(false);
-      setTimeout(() => setSyncFeedback(null), 4000);
-    }
-  };
+  // Atualiza métricas e serviço ativo automaticamente quando a sincronização em segundo plano termina
+  useEffect(() => {
+    const handleRefresh = () => {
+      checkActiveService();
+      loadDashboardMetrics();
+    };
+
+    window.addEventListener(SYNC_COMPLETE_EVENT, handleRefresh);
+    window.addEventListener('focus', handleRefresh);
+    return () => {
+      window.removeEventListener(SYNC_COMPLETE_EVENT, handleRefresh);
+      window.removeEventListener('focus', handleRefresh);
+    };
+  }, [checkActiveService, loadDashboardMetrics]);
 
   // Formata o horário do início do trabalho
   const formatStartTime = (isoString?: string) => {
@@ -308,43 +290,6 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
             </div>
             <span>Novo Serviço</span>
           </button>
-        )}
-
-        {/* Card Alerta de Sincronização Pendente */}
-        {pendingSyncCount > 0 && (
-          <div className="bg-[#FEF3C7] border border-[#FDE68A] rounded-2xl p-4 text-[#B45309] shadow-sm animate-fade-in flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <RefreshCw className="w-4 h-4 text-[#B45309]" />
-                <span className="text-xs font-bold">
-                  {pendingSyncCount} serviço(s) salvos no aparelho
-                </span>
-              </div>
-              <span className="text-[10px] font-semibold bg-[#FDE68A] px-2 py-0.5 rounded-full">
-                Offline
-              </span>
-            </div>
-            <p className="text-[11px] text-[#92400E]">
-              Os dados estão salvos com segurança neste dispositivo e serão enviados à nuvem assim que houver conexão.
-            </p>
-            {isOnline && (
-              <button
-                type="button"
-                onClick={handleManualSync}
-                disabled={isSyncing}
-                className="mt-1 self-start inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#B45309] hover:bg-[#92400E] text-white text-xs font-bold rounded-xl transition-all cursor-pointer disabled:opacity-50"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                {isSyncing ? 'Sincronizando...' : 'Sincronizar agora'}
-              </button>
-            )}
-          </div>
-        )}
-
-        {syncFeedback && (
-          <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl font-semibold animate-fade-in">
-            {syncFeedback}
-          </div>
         )}
 
         {/* Grid com apenas 2 cards focados na rotina de campo do operador */}
