@@ -583,3 +583,76 @@ export async function submitWorkLog(
 
   return { success: true, isOfflineSaved: true, localId };
 }
+
+/**
+ * Cancela e descarta um serviço que está em andamento, removendo-o do Dexie local
+ * e da tabela `work_logs` do Supabase (caso já tenha sido sincronizado).
+ */
+export async function cancelWorkLog(
+  workLogId: string | number,
+  serverId?: string | null,
+  isOnline?: boolean
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const online = isOnline ?? (typeof navigator !== 'undefined' && navigator.onLine);
+    let resolvedServerId: string | null | undefined = serverId;
+
+    // 1. Remove do banco local Dexie
+    if (typeof workLogId === 'number') {
+      const existing = await db.offline_work_logs.get(workLogId);
+      if (existing?.server_id && !resolvedServerId) {
+        resolvedServerId = existing.server_id;
+      }
+      await db.offline_work_logs.delete(workLogId);
+    } else if (typeof workLogId === 'string' && workLogId.trim() !== '') {
+      const numericId = parseInt(workLogId, 10);
+      if (!isNaN(numericId) && String(numericId) === workLogId.trim()) {
+        const existing = await db.offline_work_logs.get(numericId);
+        if (existing?.server_id && !resolvedServerId) {
+          resolvedServerId = existing.server_id;
+        }
+        await db.offline_work_logs.delete(numericId);
+      } else {
+        if (!resolvedServerId) {
+          resolvedServerId = workLogId;
+        }
+        const allLocal = await db.offline_work_logs.toArray();
+        for (const item of allLocal) {
+          if (item.server_id === workLogId || String(item.id) === workLogId) {
+            if (item.id !== undefined) {
+              await db.offline_work_logs.delete(item.id);
+            }
+          }
+        }
+      }
+    }
+
+    // Caso tenha sido passado serverId adicionalmente, garante que nenhum registro órfão reste no Dexie
+    if (resolvedServerId) {
+      const remaining = await db.offline_work_logs.toArray();
+      for (const item of remaining) {
+        if (item.server_id === resolvedServerId && item.id !== undefined) {
+          await db.offline_work_logs.delete(item.id);
+        }
+      }
+    }
+
+    // 2. Se já havia sido enviado ao Supabase e houver conexão, remove da tabela `work_logs`
+    if (resolvedServerId && online && isSupabaseConfigured()) {
+      const { error } = await supabase
+        .from('work_logs')
+        .delete()
+        .eq('id', resolvedServerId);
+
+      if (error) {
+        console.warn('[WorkLogService] Aviso ao remover serviço cancelado do Supabase:', error.message);
+      }
+    }
+
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Falha ao cancelar serviço em andamento';
+    console.error('[WorkLogService] Erro ao cancelar serviço:', message);
+    return { success: false, error: message };
+  }
+}

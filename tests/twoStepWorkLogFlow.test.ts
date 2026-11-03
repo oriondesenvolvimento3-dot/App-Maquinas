@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   startWorkLog,
   finishWorkLog,
+  cancelWorkLog,
   getActiveWorkLogForOperator,
   validateFinishServiceInput,
 } from '../src/services/workLogService';
@@ -216,6 +217,42 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
         false
       );
       expect(nextService.success).toBe(true);
+    });
+
+    it('deve cancelar um serviço em andamento descartando os dados de início e liberando novo check-in', async () => {
+      const startRes = await startWorkLog(
+        {
+          machine_id: 'mach-cat-01',
+          machine_name: 'Retroescavadeira CAT 416E',
+          operator_id: 'op-cancel-01',
+          operator_name: 'Pedro Operador',
+          start_hours: 1510,
+        },
+        false
+      );
+
+      expect(startRes.success).toBe(true);
+      const activeBefore = await getActiveWorkLogForOperator('op-cancel-01', false);
+      expect(activeBefore).toBeDefined();
+
+      const cancelRes = await cancelWorkLog(activeBefore!.id!, activeBefore!.server_id, false);
+      expect(cancelRes.success).toBe(true);
+
+      const activeAfter = await getActiveWorkLogForOperator('op-cancel-01', false);
+      expect(activeAfter).toBeNull();
+
+      // Operador pode iniciar novo serviço imediatamente após cancelar
+      const restartRes = await startWorkLog(
+        {
+          machine_id: 'mach-cat-01',
+          machine_name: 'Retroescavadeira CAT 416E',
+          operator_id: 'op-cancel-01',
+          operator_name: 'Pedro Operador',
+          start_hours: 1510,
+        },
+        false
+      );
+      expect(restartRes.success).toBe(true);
     });
   });
 });

@@ -3,7 +3,10 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import { db } from '../../lib/dexieDb';
 import { SYNC_COMPLETE_EVENT } from '../../services/syncService';
-import { getActiveWorkLogForOperator } from '../../services/workLogService';
+import {
+  getActiveWorkLogForOperator,
+  cancelWorkLog,
+} from '../../services/workLogService';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import type { OfflineWorkLog } from '../../types/database';
 import {
@@ -15,6 +18,8 @@ import {
   Shield,
   Truck,
   CheckCircle2,
+  Trash2,
+  Loader2,
 } from 'lucide-react';
 
 interface OperatorHomeProps {
@@ -33,6 +38,9 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
 
   // Serviço ativo em andamento para o operador
   const [activeService, setActiveService] = useState<OfflineWorkLog | null>(null);
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState<boolean>(false);
+  const [isCancelling, setIsCancelling] = useState<boolean>(false);
+  const [cancelToast, setCancelToast] = useState<string | null>(null);
 
   // Métricas do Operador (rotina diária de campo)
   const [servicesTodayCount, setServicesTodayCount] = useState<number>(0);
@@ -138,6 +146,35 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
       window.removeEventListener('focus', handleRefresh);
     };
   }, [checkActiveService, loadDashboardMetrics]);
+
+  // Limpa o toast temporário de cancelamento após 4 segundos
+  useEffect(() => {
+    if (!cancelToast) return;
+    const timer = setTimeout(() => {
+      setCancelToast(null);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [cancelToast]);
+
+  /**
+   * Confirma o descarte / cancelamento do serviço em andamento
+   */
+  const handleConfirmCancelService = async () => {
+    if (!activeService || isCancelling) return;
+    setIsCancelling(true);
+    try {
+      const targetId = activeService.id ?? activeService.server_id ?? '';
+      const result = await cancelWorkLog(targetId, activeService.server_id, isOnline);
+      if (result.success) {
+        setActiveService(null);
+        setIsCancelModalOpen(false);
+        setCancelToast('Serviço cancelado com sucesso.');
+        await loadDashboardMetrics();
+      }
+    } finally {
+      setIsCancelling(false);
+    }
+  };
 
   // Formata o horário do início do trabalho
   const formatStartTime = (isoString?: string) => {
@@ -276,6 +313,17 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
               <CheckCircle2 className="w-5 h-5 text-[#FBBF24]" />
               <span>Finalizar Serviço</span>
             </button>
+
+            {/* Botão Secundário Discreto: Cancelar Serviço */}
+            <button
+              id="btn-cancel-active-service"
+              type="button"
+              onClick={() => setIsCancelModalOpen(true)}
+              className="w-full h-10 bg-white/80 hover:bg-red-50 active:scale-[0.98] text-red-600 border border-red-200/80 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Cancelar Serviço</span>
+            </button>
           </div>
         ) : (
           /* Botão de Ação Primária Amarelo: + Novo Serviço (oculto quando há serviço ativo) */
@@ -347,6 +395,64 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
           Trabalho bem feito, também se mede em horas.
         </p>
       </footer>
+
+      {/* Toast Temporário de Cancelamento */}
+      {cancelToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[calc(100%-2rem)] bg-[#0F172A] text-white px-4 py-3 rounded-2xl shadow-xl border border-slate-700 flex items-center gap-2.5 text-xs font-bold animate-fade-in"
+        >
+          <CheckCircle2 className="w-4 h-4 text-[#FBBF24] shrink-0" />
+          <span>{cancelToast}</span>
+        </div>
+      )}
+
+      {/* Modal de Confirmação de Cancelamento de Serviço em Andamento */}
+      {isCancelModalOpen && activeService && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-[#0F172A]">
+                  Cancelar serviço em andamento?
+                </h3>
+                <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                  Tem certeza de que deseja cancelar este apontamento? Os dados de início serão descartados.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2.5 pt-1">
+              <button
+                id="btn-cancel-modal-back"
+                type="button"
+                onClick={() => setIsCancelModalOpen(false)}
+                disabled={isCancelling}
+                className="flex-1 h-11 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-all cursor-pointer disabled:opacity-50"
+              >
+                Voltar
+              </button>
+              <button
+                id="btn-confirm-cancel-service"
+                type="button"
+                onClick={handleConfirmCancelService}
+                disabled={isCancelling}
+                className="flex-1 h-11 bg-red-600 hover:bg-red-700 active:scale-[0.98] text-white font-bold text-xs rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isCancelling ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                ) : (
+                  <span>Sim, cancelar</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
