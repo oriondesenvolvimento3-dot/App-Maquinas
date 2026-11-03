@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import {
   fetchAdminWorkLogs,
+  fetchMachines,
+  updateAdminWorkLog,
   approveWorkLog,
   rejectWorkLog,
   deleteWorkLog,
   type ExtendedWorkLog,
 } from '../../services/adminService';
+import type { Machine } from '../../types/database';
 import { generateSingleServiceReceiptPdf } from '../../utils/pdfGenerator';
 import {
   ArrowLeft,
@@ -24,6 +27,7 @@ import {
   FileText,
   Phone,
   Trash2,
+  Save,
 } from 'lucide-react';
 
 interface AdminServiceDetailProps {
@@ -38,36 +42,198 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
   onActionComplete,
 }) => {
   const [service, setService] = useState<ExtendedWorkLog | null>(null);
+  const [machines, setMachines] = useState<Machine[]>([]);
+
+  // Estados editáveis pelo Administrador
+  const [clientNameInput, setClientNameInput] = useState<string>('');
+  const [clientPhoneInput, setClientPhoneInput] = useState<string>('');
+  const [serviceDateInput, setServiceDateInput] = useState<string>('');
+  const [machineIdInput, setMachineIdInput] = useState<string>('');
+  const [machineNameInput, setMachineNameInput] = useState<string>('');
+  const [startHoursInput, setStartHoursInput] = useState<string>('0');
+  const [endHoursInput, setEndHoursInput] = useState<string>('0');
   const [hourlyRateInput, setHourlyRateInput] = useState<string>('0');
+  const [observationsInput, setObservationsInput] = useState<string>('');
+
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [isSavingEdits, setIsSavingEdits] = useState<boolean>(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState<boolean>(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  // Máscara de telefone brasileiro: (00) 00000-0000
+  const formatPhoneMask = (val: string) => {
+    const digits = val.replace(/\D/g, '').slice(0, 11);
+    if (digits.length <= 2) return digits ? `(${digits}` : '';
+    if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+    if (digits.length <= 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7, 11)}`;
+  };
+
   useEffect(() => {
+    fetchMachines().then(setMachines);
+
     fetchAdminWorkLogs('todos').then((all) => {
       const found = all.find((s) => String(s.id) === String(serviceId));
       if (found) {
         setService(found);
+        setClientNameInput(found.client_name || '');
+        setClientPhoneInput(found.client_phone ? formatPhoneMask(found.client_phone) : '');
+        setServiceDateInput((found.service_date || '').split('T')[0]);
+        setMachineIdInput(found.machine_id || '');
+        setMachineNameInput(found.machine_name || '');
+        setStartHoursInput(String(found.start_hours ?? 0));
+        setEndHoursInput(String(found.end_hours ?? 0));
         setHourlyRateInput(String(found.hourly_rate ?? 0));
+        setObservationsInput(found.observations || '');
       }
     });
   }, [serviceId]);
 
+  const numStart = parseFloat(startHoursInput.replace(',', '.')) || 0;
+  const numEnd = parseFloat(endHoursInput.replace(',', '.')) || 0;
   const numericRate = parseFloat(hourlyRateInput.replace(',', '.')) || 0;
-  const calculatedHours = service
-    ? service.total_hours || (Number(service.end_hours) - Number(service.start_hours)) || 0
-    : 0;
-  const calculatedTotal = calculatedHours * numericRate;
+  const calculatedHours = Math.max(0, Number((numEnd - numStart).toFixed(1)));
+  const calculatedTotal = Number((calculatedHours * numericRate).toFixed(2));
+
+  const handleMachineSelect = (newMachineId: string) => {
+    setMachineIdInput(newMachineId);
+    const chosen = machines.find((m) => m.id === newMachineId);
+    if (chosen) {
+      setMachineNameInput(chosen.name);
+      if (chosen.hourly_rate !== undefined && chosen.hourly_rate > 0) {
+        setHourlyRateInput(String(chosen.hourly_rate));
+      }
+    }
+  };
+
+  /**
+   * Salva as alterações editadas pelo administrador no Supabase (`work_logs`) e no Dexie local
+   */
+  const handleSaveChanges = async (): Promise<boolean> => {
+    if (!service || isSavingEdits || isProcessing) return false;
+
+    if (!clientNameInput.trim()) {
+      setFeedback({ type: 'error', message: 'Informe o nome do cliente.' });
+      return false;
+    }
+    if (numEnd < numStart) {
+      setFeedback({
+        type: 'error',
+        message: 'O horímetro final deve ser maior ou igual ao horímetro inicial.',
+      });
+      return false;
+    }
+
+    setIsSavingEdits(true);
+    setFeedback(null);
+
+    const cleanPhone = clientPhoneInput.trim() || null;
+    const cleanObs = observationsInput.trim() || null;
+
+    const result = await updateAdminWorkLog(service.id, {
+      client_name: clientNameInput.trim(),
+      client_phone: cleanPhone,
+      service_date: serviceDateInput,
+      machine_id: machineIdInput,
+      machine_name: machineNameInput,
+      start_hours: numStart,
+      end_hours: numEnd,
+      hourly_rate: numericRate,
+      observations: cleanObs,
+    });
+
+    setIsSavingEdits(false);
+
+    if (result.success) {
+      setService((prev) =>
+        prev
+          ? {
+              ...prev,
+              client_name: clientNameInput.trim(),
+              client_phone: cleanPhone,
+              service_date: serviceDateInput,
+              machine_id: machineIdInput,
+              machine_name: machineNameInput,
+              start_hours: numStart,
+              end_hours: numEnd,
+              total_hours: calculatedHours,
+              hourly_rate: numericRate,
+              total_amount: calculatedTotal,
+              observations: cleanObs,
+            }
+          : null
+      );
+      setFeedback({ type: 'success', message: 'Alterações salvas com sucesso!' });
+      return true;
+    } else {
+      setFeedback({ type: 'error', message: result.error || 'Erro ao salvar alterações.' });
+      return false;
+    }
+  };
 
   const handleApprove = async () => {
     if (!service || isProcessing) return;
+
+    if (!clientNameInput.trim()) {
+      setFeedback({ type: 'error', message: 'Informe o nome do cliente antes de aprovar.' });
+      return;
+    }
+    if (numEnd < numStart) {
+      setFeedback({
+        type: 'error',
+        message: 'O horímetro final deve ser maior ou igual ao horímetro inicial.',
+      });
+      return;
+    }
+
     setIsProcessing(true);
     setFeedback(null);
 
+    // 1. Garante que quaisquer edições feitas nos campos sejam persistidas no Supabase e Dexie
+    const cleanPhone = clientPhoneInput.trim() || null;
+    const cleanObs = observationsInput.trim() || null;
+    const updateRes = await updateAdminWorkLog(service.id, {
+      client_name: clientNameInput.trim(),
+      client_phone: cleanPhone,
+      service_date: serviceDateInput,
+      machine_id: machineIdInput,
+      machine_name: machineNameInput,
+      start_hours: numStart,
+      end_hours: numEnd,
+      hourly_rate: numericRate,
+      observations: cleanObs,
+    });
+
+    if (!updateRes.success) {
+      setIsProcessing(false);
+      setFeedback({ type: 'error', message: updateRes.error || 'Erro ao salvar dados antes de aprovar.' });
+      return;
+    }
+
+    // 2. Aprova o apontamento e gera o lançamento financeiro
     const result = await approveWorkLog(service.id, numericRate, calculatedTotal);
     setIsProcessing(false);
 
     if (result.success) {
+      setService((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: 'aprovado',
+              client_name: clientNameInput.trim(),
+              client_phone: cleanPhone,
+              service_date: serviceDateInput,
+              machine_id: machineIdInput,
+              machine_name: machineNameInput,
+              start_hours: numStart,
+              end_hours: numEnd,
+              total_hours: calculatedHours,
+              hourly_rate: numericRate,
+              total_amount: calculatedTotal,
+              observations: cleanObs,
+            }
+          : null
+      );
       setFeedback({ type: 'success', message: 'Serviço aprovado e lançado no financeiro com sucesso!' });
       setTimeout(() => onActionComplete(), 1200);
     } else {
@@ -112,37 +278,40 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
   };
 
   /**
-   * Envio de comprovante / notinha digital via WhatsApp
+   * Envio de comprovante / notinha digital via WhatsApp (usando dados atuais editados)
    */
   const handleSendWhatsApp = () => {
     if (!service) return;
-    const dateFormatted = formatDate(service.service_date);
+    const dateFormatted = formatDate(serviceDateInput || service.service_date);
     const rateFmt = `R$ ${numericRate.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
     const totalFmt = `R$ ${calculatedTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+    const currentClient = clientNameInput.trim() || service.client_name;
+    const currentMachine = machineNameInput || service.machine_name;
+    const currentObs = observationsInput.trim();
 
     const messageLines = [
       `🚜 *RETROSCAVE - COMPROVANTE DE SERVIÇO*`,
       `━━━━━━━━━━━━━━━━━━━━━━`,
-      `👤 *Cliente:* ${service.client_name}`,
+      `👤 *Cliente:* ${currentClient}`,
       `📅 *Data:* ${dateFormatted}`,
-      `🚜 *Máquina:* ${service.machine_name}`,
+      `🚜 *Máquina:* ${currentMachine}`,
       `👷 *Operador:* ${service.operator_name}`,
       `━━━━━━━━━━━━━━━━━━━━━━`,
-      `⏱️ *Horímetro Inicial:* ${service.start_hours}h`,
-      `⏱️ *Horímetro Final:* ${service.end_hours}h`,
+      `⏱️ *Horímetro Inicial:* ${numStart}h`,
+      `⏱️ *Horímetro Final:* ${numEnd}h`,
       `⏳ *Total de Horas:* ${calculatedHours}h`,
       `💵 *Valor por Hora:* ${rateFmt}`,
       `💰 *VALOR TOTAL A ACERTAR:* ${totalFmt}`,
       `━━━━━━━━━━━━━━━━━━━━━━`,
-      service.observations ? `📝 *Observações:* ${service.observations}\n━━━━━━━━━━━━━━━━━━━━━━\n` : '',
-      `✅ *Status:* Serviço Aprovado e Concluído`,
-      `_Obrigado pela preferência e parceria!_`
+      currentObs ? `📝 *Observações:* ${currentObs}\n━━━━━━━━━━━━━━━━━━━━━━\n` : '',
+      `✅ *Status:* Serviço Conferido`,
+      `_Obrigado pela preferência e parceria!_`,
     ];
 
     const message = messageLines.filter(Boolean).join('\n');
     const encoded = encodeURIComponent(message);
 
-    const cleanPhone = (service.client_phone || '').replace(/\D/g, '');
+    const cleanPhone = (clientPhoneInput || service.client_phone || '').replace(/\D/g, '');
     if (cleanPhone.length >= 10) {
       const ddi = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
       window.open(`https://wa.me/${ddi}?text=${encoded}`, '_blank');
@@ -152,12 +321,24 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
   };
 
   /**
-   * Exporta comprovante individual timbrado em formato PDF (notinha A5)
+   * Exporta comprovante individual timbrado em formato PDF (notinha A5).
+   * Não inclui horário de início/fim do dia, apenas data, máquina, horímetros e horas totais.
    */
   const handleExportPdf = () => {
     if (!service) return;
     generateSingleServiceReceiptPdf(
-      { ...service, total_hours: calculatedHours },
+      {
+        id: service.id,
+        client_name: clientNameInput.trim() || service.client_name,
+        client_phone: clientPhoneInput.trim() || service.client_phone || null,
+        machine_name: machineNameInput || service.machine_name,
+        operator_name: service.operator_name,
+        service_date: serviceDateInput || service.service_date,
+        start_hours: numStart,
+        end_hours: numEnd,
+        total_hours: calculatedHours,
+        observations: observationsInput.trim() || null,
+      },
       numericRate,
       calculatedTotal
     );
@@ -203,6 +384,24 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
     }
   };
 
+  // Formata janela de horário real do dia (ex: 08:15 - 11:45)
+  const formatTimeSlot = (timeVal?: string, isoVal?: string) => {
+    if (timeVal && /^\d{2}:\d{2}/.test(timeVal.trim())) {
+      return timeVal.trim().slice(0, 5);
+    }
+    if (isoVal) {
+      try {
+        const d = new Date(isoVal);
+        if (!isNaN(d.getTime())) {
+          return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return '--:--';
+  };
+
   if (!service) {
     return (
       <div className="w-full max-w-md mx-auto min-h-screen bg-[#F8FAFC] flex items-center justify-center">
@@ -210,6 +409,20 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
       </div>
     );
   }
+
+  const startClock = formatTimeSlot(service.start_time, service.started_at || service.created_at);
+  const endClock =
+    service.status === 'em_andamento'
+      ? 'Em andamento'
+      : formatTimeSlot(service.end_time, service.finished_at);
+
+  // Garante que a máquina atual do serviço apareça nas opções mesmo se não estiver no cache ainda
+  const machineOptions: Array<{ id: string; name: string }> =
+    machines.length > 0
+      ? machines.some((m) => m.id === machineIdInput)
+        ? machines.map((m) => ({ id: m.id, name: m.name }))
+        : [{ id: machineIdInput, name: machineNameInput || 'Máquina Atual' }, ...machines.map((m) => ({ id: m.id, name: m.name }))]
+      : [{ id: machineIdInput, name: machineNameInput || 'Retroescavadeira' }];
 
   return (
     <div className="relative flex flex-col justify-between w-full max-w-md mx-auto min-h-screen bg-[#F8FAFC] shadow-2xl">
@@ -245,7 +458,7 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
         </div>
       </header>
 
-      {/* 2. CARD DETALHADO DO SERVIÇO */}
+      {/* 2. CARD DETALHADO E EDITÁVEL DO SERVIÇO */}
       <main
         className={`flex-1 px-6 py-6 space-y-5 overflow-y-auto ${
           service.status === 'aprovado' ? 'pb-8' : 'pb-28'
@@ -269,155 +482,209 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
           </div>
         )}
 
-        {/* Barra de Ações Rápidas de Cobrança (Apenas para Serviços Aprovados) */}
-        {service.status === 'aprovado' && (
-          <div className="p-4 bg-gradient-to-br from-emerald-50 via-teal-50/50 to-white border border-emerald-200 rounded-2xl shadow-xs space-y-3 animate-fade-in">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-emerald-800">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                <span className="text-xs font-bold uppercase tracking-wider">Ações de Cobrança</span>
-              </div>
-              {service.client_phone ? (
-                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-full flex items-center gap-1">
-                  <Phone className="w-3 h-3" /> WhatsApp Vinculado
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
-                  Sem WhatsApp direto
-                </span>
-              )}
+        {/* Barra de Ações Rápidas de Cobrança (WhatsApp e PDF) */}
+        <div className="p-4 bg-gradient-to-br from-emerald-50 via-teal-50/50 to-white border border-emerald-200 rounded-2xl shadow-xs space-y-3 animate-fade-in">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 text-emerald-800">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+              <span className="text-xs font-bold uppercase tracking-wider">Ações de Cobrança</span>
             </div>
-
-            <div className="grid grid-cols-2 gap-2.5">
-              <button
-                id="btn-whatsapp-receipt"
-                type="button"
-                onClick={handleSendWhatsApp}
-                className="h-12 px-2.5 bg-[#10B981] hover:bg-[#059669] active:scale-[0.98] text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
-              >
-                <MessageCircle className="w-4 h-4 flex-shrink-0" />
-                <span className="truncate">Comprovante WhatsApp</span>
-              </button>
-
-              <button
-                id="btn-pdf-receipt"
-                type="button"
-                onClick={handleExportPdf}
-                className="h-12 px-2.5 bg-[#0F172A] hover:bg-[#1E293B] active:scale-[0.98] text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
-              >
-                <FileText className="w-4 h-4 text-[#FBBF24] flex-shrink-0" />
-                <span className="truncate">Exportar Notinha (PDF)</span>
-              </button>
-            </div>
+            {clientPhoneInput.replace(/\D/g, '').length >= 10 ? (
+              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-full flex items-center gap-1">
+                <Phone className="w-3 h-3" /> WhatsApp Vinculado
+              </span>
+            ) : (
+              <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                Preencha o WhatsApp abaixo
+              </span>
+            )}
           </div>
-        )}
 
+          <div className="grid grid-cols-2 gap-2.5">
+            <button
+              id="btn-whatsapp-receipt"
+              type="button"
+              onClick={handleSendWhatsApp}
+              className="h-11 px-2.5 bg-[#10B981] hover:bg-[#059669] active:scale-[0.98] text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
+            >
+              <MessageCircle className="w-4 h-4 flex-shrink-0" />
+              <span className="truncate">Comprovante WhatsApp</span>
+            </button>
+
+            <button
+              id="btn-pdf-receipt"
+              type="button"
+              onClick={handleExportPdf}
+              className="h-11 px-2.5 bg-[#0F172A] hover:bg-[#1E293B] active:scale-[0.98] text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
+            >
+              <FileText className="w-4 h-4 text-[#FBBF24] flex-shrink-0" />
+              <span className="truncate">Exportar Notinha (PDF)</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Card Principal: Conferência e Edição pelo Administrador */}
         <div className="bg-white border border-[#E2E8F0] rounded-2xl p-5 shadow-sm space-y-4">
           
-          {/* Item 1: Máquina */}
+          {/* Informações de Auditoria do Expediente (Operador + Horário Real de Início e Fim) */}
+          <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-xl flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="p-2 bg-white rounded-lg border border-slate-200 text-[#0F172A] shrink-0">
+                <User className="w-4 h-4 text-[#0F172A]" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[11px] font-medium text-[#64748B]">Funcionário</p>
+                <p className="text-sm font-bold text-[#0F172A] truncate">
+                  {service.operator_name}
+                </p>
+              </div>
+            </div>
+
+            <div className="text-right shrink-0">
+              <p className="text-[11px] font-medium text-[#64748B] flex items-center justify-end gap-1">
+                <Clock className="w-3 h-3 text-[#F59E0B]" />
+                <span>Janela do Dia</span>
+              </p>
+              <p id="service-real-time-window" className="text-xs font-extrabold text-[#0F172A]">
+                Horário: {startClock} - {endClock}
+              </p>
+            </div>
+          </div>
+
+          {/* Campo 1: Máquina (Dropdown) */}
           <div className="flex items-start gap-3">
-            <div className="p-2 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0] text-[#0F172A] mt-0.5">
+            <div className="p-2 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0] text-[#0F172A] mt-6">
               <Truck className="w-4 h-4 text-[#0F172A]" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-[#64748B]">Máquina</p>
-              <p className="text-sm font-bold text-[#0F172A] truncate">
-                {service.machine_name}
-              </p>
+              <label htmlFor="admin-edit-machine" className="text-xs font-bold text-[#0F172A] block mb-1">
+                Máquina
+              </label>
+              <select
+                id="admin-edit-machine"
+                value={machineIdInput}
+                onChange={(e) => handleMachineSelect(e.target.value)}
+                className="w-full h-11 px-3 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-sm font-bold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] cursor-pointer"
+              >
+                {machineOptions.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
-          {/* Item 2: Funcionário */}
+          {/* Campo 2: Nome do Cliente */}
           <div className="flex items-start gap-3">
-            <div className="p-2 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0] text-[#0F172A] mt-0.5">
-              <User className="w-4 h-4 text-[#0F172A]" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-[#64748B]">Funcionário</p>
-              <p className="text-sm font-bold text-[#0F172A] truncate">
-                {service.operator_name}
-              </p>
-            </div>
-          </div>
-
-          {/* Item 3: Cliente */}
-          <div className="flex items-start gap-3">
-            <div className="p-2 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0] text-[#0F172A] mt-0.5">
+            <div className="p-2 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0] text-[#0F172A] mt-6">
               <Users className="w-4 h-4 text-[#0F172A]" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-[#64748B]">Cliente</p>
-              <p className="text-sm font-bold text-[#0F172A] truncate">
-                {service.client_name}
-              </p>
-              {service.client_phone && (
-                <p className="text-xs text-emerald-700 font-semibold mt-0.5 flex items-center gap-1">
-                  <Phone className="w-3 h-3 text-emerald-600" />
-                  {service.client_phone}
-                </p>
-              )}
+              <label htmlFor="admin-edit-client-name" className="text-xs font-bold text-[#0F172A] block mb-1">
+                Nome do Cliente
+              </label>
+              <input
+                id="admin-edit-client-name"
+                type="text"
+                value={clientNameInput}
+                onChange={(e) => setClientNameInput(e.target.value)}
+                placeholder="Nome do cliente ou obra"
+                className="w-full h-11 px-3 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-sm font-bold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
+              />
             </div>
           </div>
 
-          {/* Item 4: Data */}
+          {/* Campo 3: WhatsApp / Telefone do Cliente */}
           <div className="flex items-start gap-3">
-            <div className="p-2 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0] text-[#0F172A] mt-0.5">
+            <div className="p-2 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0] text-[#0F172A] mt-6">
+              <Phone className="w-4 h-4 text-emerald-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <label htmlFor="admin-edit-client-phone" className="text-xs font-bold text-[#0F172A] block mb-1">
+                WhatsApp / Telefone do Cliente
+              </label>
+              <input
+                id="admin-edit-client-phone"
+                type="tel"
+                value={clientPhoneInput}
+                onChange={(e) => setClientPhoneInput(formatPhoneMask(e.target.value))}
+                placeholder="(00) 00000-0000"
+                className="w-full h-11 px-3 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-sm font-bold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
+              />
+            </div>
+          </div>
+
+          {/* Campo 4: Data do Serviço */}
+          <div className="flex items-start gap-3">
+            <div className="p-2 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0] text-[#0F172A] mt-6">
               <Calendar className="w-4 h-4 text-[#0F172A]" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-[#64748B]">Data</p>
-              <p className="text-sm font-bold text-[#0F172A]">
-                {formatDate(service.service_date)}
-              </p>
+              <label htmlFor="admin-edit-service-date" className="text-xs font-bold text-[#0F172A] block mb-1">
+                Data do serviço
+              </label>
+              <input
+                id="admin-edit-service-date"
+                type="date"
+                value={serviceDateInput}
+                onChange={(e) => setServiceDateInput(e.target.value)}
+                className="w-full h-11 px-3 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-sm font-bold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
+              />
             </div>
           </div>
 
-          {/* Item 5: Horímetro Inicial */}
-          <div className="flex items-start gap-3">
-            <div className="p-2 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0] text-[#0F172A] mt-0.5">
-              <Clock className="w-4 h-4 text-[#0F172A]" />
+          {/* Campos 5 e 6: Horímetro Inicial e Horímetro Final */}
+          <div className="grid grid-cols-2 gap-3 pt-1">
+            <div>
+              <label htmlFor="admin-edit-start-hours" className="text-xs font-bold text-[#0F172A] flex items-center gap-1 mb-1">
+                <Clock className="w-3.5 h-3.5 text-[#64748B]" />
+                <span>Horím. Inicial (h)</span>
+              </label>
+              <input
+                id="admin-edit-start-hours"
+                type="number"
+                step="0.1"
+                value={startHoursInput}
+                onChange={(e) => setStartHoursInput(e.target.value)}
+                className="w-full h-11 px-3 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-sm font-bold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
+              />
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-[#64748B]">Horário Inicial</p>
-              <p className="text-sm font-bold text-[#0F172A]">
-                {service.start_hours}h
-              </p>
+
+            <div>
+              <label htmlFor="admin-edit-end-hours" className="text-xs font-bold text-[#0F172A] flex items-center gap-1 mb-1">
+                <RotateCw className="w-3.5 h-3.5 text-[#64748B]" />
+                <span>Horím. Final (h)</span>
+              </label>
+              <input
+                id="admin-edit-end-hours"
+                type="number"
+                step="0.1"
+                value={endHoursInput}
+                onChange={(e) => setEndHoursInput(e.target.value)}
+                className="w-full h-11 px-3 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-sm font-bold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
+              />
             </div>
           </div>
 
-          {/* Item 6: Horímetro Final */}
-          <div className="flex items-start gap-3">
-            <div className="p-2 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0] text-[#0F172A] mt-0.5">
-              <RotateCw className="w-4 h-4 text-[#0F172A]" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-[#64748B]">Horário Final</p>
-              <p className="text-sm font-bold text-[#0F172A]">
-                {service.end_hours}h
-              </p>
-            </div>
-          </div>
-
-          {/* Item 7: Horas trabalhadas */}
-          <div className="flex items-start gap-3">
-            <div className="p-2 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0] text-[#0F172A] mt-0.5">
+          {/* Item 7: Horas trabalhadas (Recalculadas automaticamente) */}
+          <div className="flex items-center justify-between p-3 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl">
+            <div className="flex items-center gap-2">
               <Fuel className="w-4 h-4 text-[#0F172A]" />
+              <span className="text-xs font-semibold text-[#64748B]">Horas trabalhadas</span>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-[#64748B]">Horas trabalhadas</p>
-              <p className="text-sm font-bold text-[#0F172A]">
-                {calculatedHours}h
-              </p>
-            </div>
+            <span className="text-sm font-extrabold text-[#0F172A]">
+              {calculatedHours}h
+            </span>
           </div>
 
           {/* Item 8: Valor por hora (Editável para o Administrador) */}
           <div className="flex items-start gap-3 pt-1">
-            <div className="p-2 bg-[#FEF3C7] rounded-xl border border-[#FDE68A] text-[#B45309] mt-0.5">
+            <div className="p-2 bg-[#FEF3C7] rounded-xl border border-[#FDE68A] text-[#B45309] mt-6">
               <DollarSign className="w-4 h-4 text-[#B45309]" />
             </div>
             <div className="flex-1 min-w-0">
-              <label className="text-xs font-bold text-[#0F172A] block mb-1">
+              <label htmlFor="input-applied-hourly-rate" className="text-xs font-bold text-[#0F172A] block mb-1">
                 Valor por hora (R$)
               </label>
               <input
@@ -432,24 +699,51 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
             </div>
           </div>
 
-          {/* Item 9: Total Calculado em Tempo Real */}
-          <div className="pt-2 border-t border-[#E2E8F0] flex items-center justify-between">
+          {/* Campo 9: Observações */}
+          <div className="space-y-1 pt-1">
+            <label htmlFor="admin-edit-observations" className="text-xs font-bold text-[#0F172A] block">
+              Observações
+            </label>
+            <textarea
+              id="admin-edit-observations"
+              rows={2}
+              value={observationsInput}
+              onChange={(e) => setObservationsInput(e.target.value)}
+              placeholder="Adicione ou edite observações deste serviço..."
+              className="w-full p-3 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-xs font-medium text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] resize-none"
+            />
+          </div>
+
+          {/* Item 10: Total Calculado em Tempo Real */}
+          <div className="pt-3 border-t border-[#E2E8F0] flex items-center justify-between">
             <span className="text-sm font-bold text-[#64748B]">Total</span>
             <span className="text-xl font-extrabold text-[#0F172A]">
               R$ {calculatedTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
             </span>
           </div>
+
+          {/* Botão Salvar Alterações */}
+          <button
+            id="btn-save-service-changes"
+            type="button"
+            onClick={handleSaveChanges}
+            disabled={isSavingEdits || isProcessing}
+            className="w-full h-11 bg-[#FBBF24] hover:bg-[#F59E0B] active:scale-[0.98] text-[#0F172A] font-extrabold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+          >
+            {isSavingEdits ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-[#0F172A]" />
+                <span>Salvando alterações...</span>
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                <span>Salvar Alterações</span>
+              </>
+            )}
+          </button>
         </div>
 
-        {/* Seção: Observações */}
-        {service.observations && (
-          <div className="space-y-1.5">
-            <h3 className="text-xs font-bold text-[#0F172A]">Observações</h3>
-            <p className="text-xs text-[#64748B] bg-white border border-[#E2E8F0] rounded-xl p-3.5 leading-relaxed">
-              {service.observations}
-            </p>
-          </div>
-        )}
         {/* Botão discreto de Exclusão no final do card */}
         <div className="pt-2 flex justify-center">
           <button
@@ -515,8 +809,8 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
 
             {/* Resumo do serviço a excluir */}
             <div className="bg-slate-50 rounded-xl p-3 text-xs text-slate-700 space-y-1 border border-slate-200">
-              <p><span className="font-semibold text-slate-900">Cliente:</span> {service.client_name}</p>
-              <p><span className="font-semibold text-slate-900">Máquina:</span> {service.machine_name}</p>
+              <p><span className="font-semibold text-slate-900">Cliente:</span> {clientNameInput || service.client_name}</p>
+              <p><span className="font-semibold text-slate-900">Máquina:</span> {machineNameInput || service.machine_name}</p>
               <p><span className="font-semibold text-slate-900">Horas:</span> {calculatedHours}h • R$ {calculatedTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
             </div>
 

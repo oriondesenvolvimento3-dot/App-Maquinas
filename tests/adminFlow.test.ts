@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   fetchAdminMetrics,
   fetchAdminWorkLogs,
+  updateAdminWorkLog,
   approveWorkLog,
   rejectWorkLog,
   fetchMachines,
@@ -196,6 +197,52 @@ describe('Fluxo Administrativo - Gestão, Conferência e Métricas Financeiras',
       const updated = await db.offline_work_logs.get(testId as number);
       expect(updated?.status).toBe('rejeitado');
       expect(updated?.observations).toContain('Rejeitado: Horímetro não confere com foto');
+    });
+
+    it('deve permitir ao administrador editar todos os dados do apontamento antes de aprovar (updateAdminWorkLog)', async () => {
+      const testId = await db.offline_work_logs.add({
+        machine_id: 'mach-cat-01',
+        machine_name: 'Retroescavadeira 01',
+        operator_id: 'op-01',
+        operator_name: 'João Silva',
+        client_name: 'Cliente Antigo',
+        client_phone: null,
+        service_date: '2026-10-26',
+        start_hours: 1000,
+        end_hours: 1004,
+        total_hours: 4,
+        observations: 'Obs inicial',
+        status: 'pendente',
+        sync_status: 'synced',
+        created_at: new Date().toISOString(),
+      });
+
+      const editRes = await updateAdminWorkLog(testId as number, {
+        client_name: 'Cliente Editado Admin',
+        client_phone: '(35) 99988-7766',
+        service_date: '2026-10-27',
+        machine_id: 'mach-jcb-02',
+        machine_name: 'Retroescavadeira JCB 02',
+        start_hours: 1000,
+        end_hours: 1006.5,
+        hourly_rate: 200,
+        observations: 'Observação revisada pelo gestor',
+      });
+
+      expect(editRes.success).toBe(true);
+
+      const updated = await db.offline_work_logs.get(testId as number);
+      expect(updated?.client_name).toBe('Cliente Editado Admin');
+      expect(updated?.client_phone).toBe('(35) 99988-7766');
+      expect(updated?.service_date).toBe('2026-10-27');
+      expect(updated?.machine_id).toBe('mach-jcb-02');
+      expect(updated?.machine_name).toBe('Retroescavadeira JCB 02');
+      expect(updated?.start_hours).toBe(1000);
+      expect(updated?.end_hours).toBe(1006.5);
+      expect(updated?.total_hours).toBe(6.5);
+      expect(updated?.hourly_rate).toBe(200);
+      expect(updated?.total_amount).toBe(1300);
+      expect(updated?.observations).toBe('Observação revisada pelo gestor');
     });
   });
 

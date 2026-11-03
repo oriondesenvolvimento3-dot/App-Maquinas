@@ -26,9 +26,42 @@ export interface ExtendedWorkLog {
   total_hours: number;
   observations: string | null;
   status: WorkLogStatus;
+  started_at?: string;
+  finished_at?: string;
+  start_time?: string;
+  end_time?: string;
   hourly_rate?: number;
   total_amount?: number;
   created_at: string;
+}
+
+export interface AdminWorkLogUpdatePayload {
+  client_name: string;
+  client_phone?: string | null;
+  service_date: string;
+  machine_id: string;
+  machine_name?: string;
+  start_hours: number;
+  end_hours: number;
+  hourly_rate: number;
+  observations?: string | null;
+}
+
+/**
+ * Converte string de horário (HH:mm ou ISO) para o formato curto HH:mm
+ */
+function resolveTimeHHMM(val?: string | null): string | undefined {
+  if (!val) return undefined;
+  if (/^\d{2}:\d{2}/.test(val.trim())) {
+    return val.trim().slice(0, 5);
+  }
+  try {
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return undefined;
+    return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -117,33 +150,53 @@ export async function fetchAdminWorkLogs(filterStatus: WorkLogFilter = 'todos'):
           }
         }
         const profileMap = new Map(cachedProfiles.map((p) => [p.id, p]));
+        const allLocalLogs = await db.offline_work_logs.toArray();
+        const localByServerId = new Map(
+          allLocalLogs.filter((l) => l.server_id).map((l) => [l.server_id!, l])
+        );
 
         resultLogs = data.map((item: any) => {
           const machine = machineMap.get(item.machine_id);
           const profile = profileMap.get(item.operator_id);
+          const localMatch = localByServerId.get(item.id);
 
-          const rate = Number(machine?.hourly_rate ?? 0);
+          const rate = Number(localMatch?.hourly_rate ?? machine?.hourly_rate ?? 0);
           const rawHours = Number(item.total_hours ?? 0);
           const startH = Number(item.start_hours ?? 0);
           const endH = Number(item.end_hours ?? 0);
           const totalHours = rawHours > 0 ? rawHours : Math.max(0, Number((endH - startH).toFixed(1)));
-          const totalAmount = totalHours * rate;
+          const totalAmount =
+            localMatch?.total_amount !== undefined && localMatch.total_amount > 0
+              ? localMatch.total_amount
+              : totalHours * rate;
+
+          const startedAt = localMatch?.started_at || item.started_at || item.created_at;
+          const finishedAt =
+            localMatch?.finished_at ||
+            item.finished_at ||
+            (item.status !== 'em_andamento' ? item.updated_at || item.created_at : undefined);
+          const startTime = localMatch?.start_time || resolveTimeHHMM(startedAt);
+          const endTime = localMatch?.end_time || resolveTimeHHMM(finishedAt);
 
           return {
             id: item.id,
             server_id: item.id,
             machine_id: item.machine_id,
-            machine_name: machine?.name || 'Retroescavadeira',
+            machine_name: machine?.name || localMatch?.machine_name || 'Retroescavadeira',
             operator_id: item.operator_id,
-            operator_name: profile?.full_name || 'Operador',
+            operator_name: profile?.full_name || localMatch?.operator_name || 'Operador',
             client_name: item.client_name,
-            client_phone: item.client_phone || null,
+            client_phone: item.client_phone || localMatch?.client_phone || null,
             service_date: item.service_date,
             start_hours: startH,
             end_hours: endH,
             total_hours: totalHours,
             observations: item.observations,
             status: item.status || 'pendente',
+            started_at: startedAt,
+            finished_at: finishedAt,
+            start_time: startTime,
+            end_time: endTime,
             hourly_rate: rate,
             total_amount: totalAmount,
             created_at: item.created_at,
@@ -158,21 +211,26 @@ export async function fetchAdminWorkLogs(filterStatus: WorkLogFilter = 'todos'):
   // Leitura do banco local Dexie se não houver dados do Supabase
   if (resultLogs.length === 0) {
     const localLogs = await db.offline_work_logs.toArray();
+    const cachedMachines = await db.cached_machines.toArray();
+    const machineMap = new Map(cachedMachines.map((m) => [m.id, m]));
 
     resultLogs = localLogs.map((log) => {
       const status = log.status || 'pendente';
-      const rate = log.hourly_rate || 0;
+      const machine = machineMap.get(log.machine_id);
+      const rate = log.hourly_rate || machine?.hourly_rate || 0;
       const startH = Number(log.start_hours ?? 0);
       const endH = Number(log.end_hours ?? 0);
       const rawHours = Number(log.total_hours ?? 0);
       const totalHours = rawHours > 0 ? rawHours : Math.max(0, Number((endH - startH).toFixed(1)));
       const totalAmount = log.total_amount !== undefined && log.total_amount > 0 ? log.total_amount : (totalHours * rate);
+      const startedAt = log.started_at || log.created_at;
+      const finishedAt = log.finished_at || (status !== 'em_andamento' ? log.created_at : undefined);
 
       return {
         id: log.id || log.server_id || `temp-${Math.random()}`,
         server_id: log.server_id,
         machine_id: log.machine_id,
-        machine_name: log.machine_name,
+        machine_name: machine?.name || log.machine_name,
         operator_id: log.operator_id,
         operator_name: log.operator_name,
         client_name: log.client_name,
@@ -183,6 +241,10 @@ export async function fetchAdminWorkLogs(filterStatus: WorkLogFilter = 'todos'):
         total_hours: totalHours,
         observations: log.observations,
         status,
+        started_at: startedAt,
+        finished_at: finishedAt,
+        start_time: log.start_time || resolveTimeHHMM(startedAt),
+        end_time: log.end_time || resolveTimeHHMM(finishedAt),
         hourly_rate: rate,
         total_amount: totalAmount,
         created_at: log.created_at,
@@ -198,6 +260,116 @@ export async function fetchAdminWorkLogs(filterStatus: WorkLogFilter = 'todos'):
   resultLogs.sort((a, b) => new Date(b.service_date).getTime() - new Date(a.service_date).getTime());
 
   return resultLogs;
+}
+
+/**
+ * 2.1. Atualiza os dados de um apontamento de serviço pelo Administrador antes ou depois de aprovar.
+ * Salva tanto no cache local do Dexie quanto na tabela `work_logs` do Supabase.
+ */
+export async function updateAdminWorkLog(
+  workLogId: string | number,
+  updates: AdminWorkLogUpdatePayload
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (!updates.client_name || updates.client_name.trim().length === 0) {
+      return { success: false, error: 'Informe o nome do cliente.' };
+    }
+    if (isNaN(updates.start_hours) || updates.start_hours < 0) {
+      return { success: false, error: 'Horímetro inicial inválido.' };
+    }
+    if (isNaN(updates.end_hours) || updates.end_hours < updates.start_hours) {
+      return { success: false, error: 'O horímetro final deve ser maior ou igual ao inicial.' };
+    }
+
+    const now = new Date().toISOString();
+    const online = typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
+
+    const totalHours = Math.max(
+      0,
+      Number((Number(updates.end_hours) - Number(updates.start_hours)).toFixed(1))
+    );
+    const rate = Number(updates.hourly_rate) || 0;
+    const totalAmount = Number((totalHours * rate).toFixed(2));
+    const cleanPhone = updates.client_phone?.trim() || null;
+    const cleanObs = updates.observations?.trim() || null;
+
+    // Resolve o nome da máquina caso tenha sido alterada no dropdown
+    let resolvedMachineName = updates.machine_name;
+    if (!resolvedMachineName && updates.machine_id) {
+      const cachedMachine = await db.cached_machines.get(updates.machine_id);
+      if (cachedMachine) {
+        resolvedMachineName = cachedMachine.name;
+      }
+    }
+
+    // 1. Localiza e atualiza no Dexie local
+    let existing: any = null;
+    if (typeof workLogId === 'number') {
+      existing = await db.offline_work_logs.get(workLogId);
+    } else {
+      const numericId = parseInt(workLogId, 10);
+      if (!isNaN(numericId) && String(numericId) === String(workLogId)) {
+        existing = await db.offline_work_logs.get(numericId);
+      }
+      if (!existing) {
+        try {
+          existing = await db.offline_work_logs.where('server_id').equals(String(workLogId)).first();
+        } catch {
+          const allLocal = await db.offline_work_logs.toArray();
+          existing = allLocal.find((l) => l.server_id === workLogId || String(l.id) === String(workLogId));
+        }
+      }
+      if (!existing) {
+        const allLocal = await db.offline_work_logs.toArray();
+        existing = allLocal.find((l) => l.server_id === workLogId || String(l.id) === String(workLogId));
+      }
+    }
+
+    if (existing?.id) {
+      await db.offline_work_logs.update(existing.id, {
+        client_name: updates.client_name.trim(),
+        client_phone: cleanPhone,
+        service_date: updates.service_date,
+        machine_id: updates.machine_id,
+        machine_name: resolvedMachineName || existing.machine_name,
+        start_hours: Number(updates.start_hours),
+        end_hours: Number(updates.end_hours),
+        total_hours: totalHours,
+        hourly_rate: rate,
+        total_amount: totalAmount,
+        observations: cleanObs,
+      });
+    }
+
+    // 2. Se online, atualiza na tabela `work_logs` do Supabase
+    if (online) {
+      const serverId = existing?.server_id || String(workLogId);
+      const { error } = await supabase
+        .from('work_logs')
+        .update({
+          client_name: updates.client_name.trim(),
+          client_phone: cleanPhone,
+          service_date: updates.service_date,
+          machine_id: updates.machine_id,
+          start_hours: Number(updates.start_hours),
+          end_hours: Number(updates.end_hours),
+          observations: cleanObs,
+          updated_at: now,
+        })
+        .eq('id', serverId);
+
+      if (error) {
+        console.error('[Supabase updateAdminWorkLog Error]:', error);
+        return { success: false, error: error.message };
+      }
+    }
+
+    return { success: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Falha ao atualizar apontamento';
+    console.error('[AdminService] Erro em updateAdminWorkLog:', msg);
+    return { success: false, error: msg };
+  }
 }
 
 /**

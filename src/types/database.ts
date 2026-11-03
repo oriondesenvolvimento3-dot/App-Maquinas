@@ -55,7 +55,10 @@ export interface WorkLog {
   total_hours: number; // Horas totais calculadas (end_hours - start_hours)
   observations: string | null; // Observações opcionais do operador
   status: WorkLogStatus; // 'pendente' | 'aprovado' | 'rejeitado' | 'em_andamento'
-  started_at?: string; // Horário de início do serviço
+  started_at?: string; // Horário de início do serviço (ISO)
+  finished_at?: string; // Horário de término do serviço (ISO)
+  start_time?: string; // Hora real de início formatada (ex: "08:15")
+  end_time?: string; // Hora real de término formatada (ex: "11:45")
   created_at: string; // Timestamp ISO
   updated_at?: string;
 
@@ -110,7 +113,10 @@ export interface OfflineWorkLog {
   sync_status: SyncStatus; // 'pending' | 'synced'
   synced?: boolean; // true quando sincronizado com o Supabase
   status?: WorkLogStatus; // 'pendente' | 'aprovado' | 'rejeitado' | 'em_andamento'
-  started_at?: string; // Horário de início do serviço (exclusivo do Dexie / controle local)
+  started_at?: string; // Horário de início do serviço (ISO)
+  finished_at?: string; // Horário de término do serviço (ISO)
+  start_time?: string; // Hora real de início formatada (ex: "08:15")
+  end_time?: string; // Hora real de término formatada (ex: "11:45")
   hourly_rate?: number;
   total_amount?: number;
   created_at: string;

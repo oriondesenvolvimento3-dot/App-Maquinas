@@ -49,6 +49,7 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
       expect(active?.machine_id).toBe('mach-cat-01');
       expect(active?.start_hours).toBe(1500.5);
       expect(active?.started_at).toBeDefined();
+      expect(active?.start_time).toMatch(/^\d{2}:\d{2}$/);
     });
 
     it('deve impedir que o mesmo operador inicie mais de 1 serviço em andamento simultaneamente', async () => {
@@ -196,6 +197,8 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
       expect(finishedLog?.client_name).toBe('Construtora Horizonte');
       expect(finishedLog?.total_hours).toBe(6.5);
       expect(finishedLog?.client_phone).toBe('(11) 98765-4321');
+      expect(finishedLog?.finished_at).toBeDefined();
+      expect(finishedLog?.end_time).toMatch(/^\d{2}:\d{2}$/);
 
       // 5. Verifica que o horímetro da máquina foi atualizado
       const machine = await db.cached_machines.get('mach-cat-01');

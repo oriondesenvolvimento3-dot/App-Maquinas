@@ -30,6 +30,29 @@ export interface FinishServiceFormData {
   end_hours: number;
   observations?: string | null;
   started_at?: string;
+  start_time?: string;
+  finished_at?: string;
+  end_time?: string;
+}
+
+/**
+ * Formata um timestamp ISO ou Date no padrão HH:mm (ex: "08:15")
+ */
+export function formatTimeHHMM(val?: string | Date): string {
+  if (!val) {
+    const d = new Date();
+    return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  }
+  if (typeof val === 'string' && /^\d{2}:\d{2}/.test(val.trim())) {
+    return val.trim().slice(0, 5);
+  }
+  try {
+    const d = typeof val === 'string' ? new Date(val) : val;
+    if (isNaN(d.getTime())) return '--:--';
+    return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '--:--';
+  }
 }
 
 export interface WorkLogFormData {
@@ -202,6 +225,7 @@ export async function getActiveWorkLogForOperator(
         // Salva no Dexie local para garantir resiliência offline
         const machineName = (data.machine as any)?.name || 'Retroescavadeira';
         const now = new Date().toISOString();
+        const startedIso = data.started_at || data.created_at || now;
         const newLocalLog: OfflineWorkLog = {
           server_id: data.id,
           machine_id: data.machine_id,
@@ -216,7 +240,8 @@ export async function getActiveWorkLogForOperator(
           total_hours: 0,
           observations: data.observations || null,
           status: 'em_andamento',
-          started_at: data.started_at || data.created_at,
+          started_at: startedIso,
+          start_time: formatTimeHHMM(startedIso),
           sync_status: 'synced',
           synced: true,
           created_at: data.created_at || now,
@@ -261,7 +286,9 @@ export async function startWorkLog(
     };
   }
 
-  const now = new Date().toISOString();
+  const nowDate = new Date();
+  const now = nowDate.toISOString();
+  const startTimeStr = formatTimeHHMM(nowDate);
   const todayStr = now.split('T')[0];
 
   // 1. Salva primeiro no banco local Dexie com synced: false
@@ -280,6 +307,7 @@ export async function startWorkLog(
       observations: null,
       status: 'em_andamento',
       started_at: now,
+      start_time: startTimeStr,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Falha ao salvar no banco local';
@@ -347,7 +375,11 @@ export async function finishWorkLog(
 
   const total_hours = calculateTotalHours(formData.start_hours, formData.end_hours);
   const phone = formData.client_phone?.trim() || null;
-  const now = new Date().toISOString();
+  const nowDate = new Date();
+  const now = formData.finished_at || nowDate.toISOString();
+  const endTimeStr = formData.end_time || formatTimeHHMM(now);
+  const startedIso = formData.started_at || now;
+  const startTimeStr = formData.start_time || formatTimeHHMM(startedIso);
   const online = isOnline ?? (typeof navigator !== 'undefined' && navigator.onLine);
 
   // 1. Salva primeiro no banco local Dexie com synced: false
@@ -362,6 +394,10 @@ export async function finishWorkLog(
         total_hours,
         observations: formData.observations?.trim() || null,
         status: 'pendente',
+        started_at: startedIso,
+        start_time: startTimeStr,
+        finished_at: now,
+        end_time: endTimeStr,
         sync_status: 'pending',
         synced: false,
       });
@@ -380,7 +416,10 @@ export async function finishWorkLog(
         total_hours,
         observations: formData.observations?.trim() || null,
         status: 'pendente',
-        started_at: formData.started_at || now,
+        started_at: startedIso,
+        start_time: startTimeStr,
+        finished_at: now,
+        end_time: endTimeStr,
       });
     }
 

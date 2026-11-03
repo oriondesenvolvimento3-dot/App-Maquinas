@@ -12,7 +12,6 @@ import {
   Truck,
   Clock,
   Users,
-  Phone,
   Calendar,
   FileText,
   AlertCircle,
@@ -36,7 +35,6 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
 
   const [endHours, setEndHours] = useState<string>('');
   const [clientName, setClientName] = useState<string>('');
-  const [clientPhone, setClientPhone] = useState<string>('');
   const [serviceDate, setServiceDate] = useState<string>(
     new Date().toISOString().split('T')[0]
   );
@@ -45,19 +43,6 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [generalError, setGeneralError] = useState<string | null>(null);
-
-  // Máscara amigável de WhatsApp/telefone brasileiro: (XX) XXXXX-XXXX
-  const formatPhoneMask = (val: string) => {
-    const digits = val.replace(/\D/g, '').slice(0, 11);
-    if (digits.length <= 2) return digits ? `(${digits}` : '';
-    if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
-    if (digits.length <= 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
-    return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7, 11)}`;
-  };
-
-  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setClientPhone(formatPhoneMask(e.target.value));
-  };
 
   // Formata hora de início
   const formatStartTime = (isoString?: string) => {
@@ -111,12 +96,13 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
       operator_id: activeLog.operator_id,
       operator_name: activeLog.operator_name,
       client_name: clientName.trim(),
-      client_phone: clientPhone.trim() || null,
+      client_phone: null,
       service_date: serviceDate,
       start_hours: numStart,
       end_hours: numEnd,
       observations: observations.trim() || null,
       started_at: activeLog.started_at,
+      start_time: activeLog.start_time,
     };
 
     try {
@@ -128,7 +114,6 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
           operator_id: activeLog.operator_id,
           operator_name: activeLog.operator_name,
           client_name: clientName.trim(),
-          client_phone: clientPhone.trim() || undefined,
           service_date: serviceDate,
           start_hours: numStart,
           end_hours: numEnd,
@@ -336,33 +321,6 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
                 {formErrors.client_name}
               </p>
             )}
-          </div>
-
-          {/* WhatsApp do Cliente */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label
-                htmlFor="client_phone"
-                className="flex items-center gap-1.5 text-xs font-bold text-[#0F172A] uppercase tracking-wider"
-              >
-                <Phone className="w-4 h-4 text-[#F59E0B]" />
-                <span>WhatsApp do Cliente</span>
-              </label>
-              <span className="text-[11px] font-medium text-slate-400">
-                Opcional
-              </span>
-            </div>
-            <input
-              id="client_phone"
-              type="tel"
-              placeholder="(00) 00000-0000"
-              value={clientPhone}
-              onChange={handlePhoneChange}
-              className="w-full h-12 px-4 rounded-xl border border-[#CBD5E1] bg-white text-base font-semibold text-[#0F172A] placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#FBBF24] focus:border-transparent transition-all shadow-sm"
-            />
-            <p className="text-[11px] text-slate-500">
-              Permite enviar o comprovante de serviço diretamente pelo WhatsApp ao cliente.
-            </p>
           </div>
 
           {/* Data do Serviço */}
