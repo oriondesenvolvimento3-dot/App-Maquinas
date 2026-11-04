@@ -1,6 +1,6 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { db } from '../lib/dexieDb';
-import type { Machine, WorkLogStatus } from '../types/database';
+import type { Machine, WorkLogStatus, PaymentStatus } from '../types/database';
 
 export interface AdminMetrics {
   totalServices: number;
@@ -26,6 +26,7 @@ export interface ExtendedWorkLog {
   total_hours: number;
   observations: string | null;
   status: WorkLogStatus;
+  payment_status?: PaymentStatus;
   started_at?: string;
   finished_at?: string;
   start_time?: string;
@@ -45,6 +46,7 @@ export interface AdminWorkLogUpdatePayload {
   end_hours: number;
   hourly_rate: number;
   observations?: string | null;
+  payment_status?: PaymentStatus;
 }
 
 /**
@@ -193,6 +195,7 @@ export async function fetchAdminWorkLogs(filterStatus: WorkLogFilter = 'todos'):
             total_hours: totalHours,
             observations: item.observations,
             status: item.status || 'pendente',
+            payment_status: (item.payment_status || localMatch?.payment_status || 'a_receber') as PaymentStatus,
             started_at: startedAt,
             finished_at: finishedAt,
             start_time: startTime,
@@ -241,6 +244,7 @@ export async function fetchAdminWorkLogs(filterStatus: WorkLogFilter = 'todos'):
         total_hours: totalHours,
         observations: log.observations,
         status,
+        payment_status: (log.payment_status || 'a_receber') as PaymentStatus,
         started_at: startedAt,
         finished_at: finishedAt,
         start_time: log.start_time || resolveTimeHHMM(startedAt),
@@ -338,6 +342,7 @@ export async function updateAdminWorkLog(
         hourly_rate: rate,
         total_amount: totalAmount,
         observations: cleanObs,
+        ...(updates.payment_status ? { payment_status: updates.payment_status } : {}),
       });
     }
 
@@ -354,6 +359,7 @@ export async function updateAdminWorkLog(
           start_hours: Number(updates.start_hours),
           end_hours: Number(updates.end_hours),
           observations: cleanObs,
+          ...(updates.payment_status ? { payment_status: updates.payment_status } : {}),
           updated_at: now,
         })
         .eq('id', serverId);
@@ -368,6 +374,71 @@ export async function updateAdminWorkLog(
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Falha ao atualizar apontamento';
     console.error('[AdminService] Erro em updateAdminWorkLog:', msg);
+    return { success: false, error: msg };
+  }
+}
+
+/**
+ * 2.2. Atualiza o status de pagamento ('pago' | 'a_receber') de um serviço
+ * tanto na tabela `work_logs` do Supabase quanto no cache local do Dexie.
+ */
+export async function updateWorkLogPaymentStatus(
+  workLogId: string | number,
+  paymentStatus: PaymentStatus
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const now = new Date().toISOString();
+    const online = typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
+
+    // 1. Localiza e atualiza no Dexie local
+    let existing: any = null;
+    if (typeof workLogId === 'number') {
+      existing = await db.offline_work_logs.get(workLogId);
+    } else {
+      const numericId = parseInt(workLogId, 10);
+      if (!isNaN(numericId) && String(numericId) === String(workLogId)) {
+        existing = await db.offline_work_logs.get(numericId);
+      }
+      if (!existing) {
+        try {
+          existing = await db.offline_work_logs.where('server_id').equals(String(workLogId)).first();
+        } catch {
+          const allLocal = await db.offline_work_logs.toArray();
+          existing = allLocal.find((l) => l.server_id === workLogId || String(l.id) === String(workLogId));
+        }
+      }
+      if (!existing) {
+        const allLocal = await db.offline_work_logs.toArray();
+        existing = allLocal.find((l) => l.server_id === workLogId || String(l.id) === String(workLogId));
+      }
+    }
+
+    if (existing?.id) {
+      await db.offline_work_logs.update(existing.id, {
+        payment_status: paymentStatus,
+      });
+    }
+
+    // 2. Se online, atualiza `payment_status` na tabela `work_logs` do Supabase
+    if (online) {
+      const serverId = existing?.server_id || String(workLogId);
+      const { error } = await supabase
+        .from('work_logs')
+        .update({
+          payment_status: paymentStatus,
+          updated_at: now,
+        })
+        .eq('id', serverId);
+
+      if (error) {
+        console.warn('[Supabase updateWorkLogPaymentStatus Warning]:', error.message);
+      }
+    }
+
+    return { success: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Falha ao atualizar status de pagamento';
+    console.error('[AdminService] Erro em updateWorkLogPaymentStatus:', msg);
     return { success: false, error: msg };
   }
 }

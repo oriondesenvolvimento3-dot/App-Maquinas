@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   fetchAdminWorkLogs,
+  updateWorkLogPaymentStatus,
   type ExtendedWorkLog,
   type WorkLogFilter,
 } from '../../services/adminService';
+import type { PaymentStatus } from '../../types/database';
 import { SYNC_COMPLETE_EVENT } from '../../services/syncService';
 import {
   Truck,
@@ -12,6 +14,7 @@ import {
   BadgeDollarSign,
   MoreHorizontal,
   ArrowLeft,
+  CheckCircle2,
 } from 'lucide-react';
 
 interface AdminServiceListProps {
@@ -30,6 +33,31 @@ export const AdminServiceList: React.FC<AdminServiceListProps> = ({
   const [activeFilter, setActiveFilter] = useState<WorkLogFilter>('todos');
   const [services, setServices] = useState<ExtendedWorkLog[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [paymentToastMessage, setPaymentToastMessage] = useState<string | null>(null);
+
+  const handleTogglePaymentStatus = async (
+    e: React.MouseEvent,
+    service: ExtendedWorkLog
+  ) => {
+    e.stopPropagation();
+    const current: PaymentStatus = service.payment_status || 'a_receber';
+    const nextStatus: PaymentStatus = current === 'pago' ? 'a_receber' : 'pago';
+
+    await updateWorkLogPaymentStatus(service.id, nextStatus);
+    setServices((prev) =>
+      prev.map((item) =>
+        String(item.id) === String(service.id)
+          ? { ...item, payment_status: nextStatus }
+          : item
+      )
+    );
+    setPaymentToastMessage(
+      nextStatus === 'pago'
+        ? 'Status financeiro atualizado para "Pago"!'
+        : 'Status financeiro atualizado para "A receber"!'
+    );
+    setTimeout(() => setPaymentToastMessage(null), 3500);
+  };
 
   const loadServices = useCallback(() => {
     setIsLoading(true);
@@ -168,6 +196,16 @@ export const AdminServiceList: React.FC<AdminServiceListProps> = ({
 
       {/* 2. LISTAGEM DE CARDS DE SERVIÇO */}
       <main className="flex-1 px-6 py-4 space-y-3">
+        {paymentToastMessage && (
+          <div
+            role="status"
+            className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold rounded-xl flex items-center gap-2 animate-fade-in"
+          >
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+            <span>{paymentToastMessage}</span>
+          </div>
+        )}
+
         {isLoading ? (
           <div className="py-12 text-center text-xs font-semibold text-[#64748B]">
             Carregando serviços...
@@ -204,7 +242,28 @@ export const AdminServiceList: React.FC<AdminServiceListProps> = ({
               </div>
 
               <div className="flex flex-col items-end gap-1.5 flex-shrink-0 ml-2">
-                {getStatusBadge(service.status)}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={(e) => handleTogglePaymentStatus(e, service)}
+                    title="Clique para alternar status de pagamento"
+                    className={`px-2 py-0.5 rounded-full text-[11px] font-bold inline-flex items-center gap-1 transition-all cursor-pointer ${
+                      (service.payment_status || 'a_receber') === 'pago'
+                        ? 'bg-[#DCFCE7] text-[#166534] border border-[#86EFAC]'
+                        : 'bg-[#FEF3C7] text-[#B45309] border border-[#FDE68A]'
+                    }`}
+                  >
+                    {(service.payment_status || 'a_receber') === 'pago' ? (
+                      <>
+                        <CheckCircle2 className="w-3 h-3 text-[#166534]" />
+                        <span>Pago</span>
+                      </>
+                    ) : (
+                      <span>A receber</span>
+                    )}
+                  </button>
+                  {getStatusBadge(service.status)}
+                </div>
                 <span className="text-[11px] font-medium text-[#94A3B8]">
                   {formatDate(service.service_date)}
                 </span>

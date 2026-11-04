@@ -69,6 +69,7 @@ export async function saveOfflineWorkLog(
     sync_status: 'pending',
     synced: false,
     status: entry.status || 'pendente',
+    payment_status: entry.payment_status || 'a_receber',
     created_at: new Date().toISOString(),
   };
 

@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   fetchAdminWorkLogs,
+  updateWorkLogPaymentStatus,
   type ExtendedWorkLog,
 } from '../../services/adminService';
+import type { PaymentStatus } from '../../types/database';
 import { SYNC_COMPLETE_EVENT } from '../../services/syncService';
 import {
   generateServiceReportPdf,
@@ -50,8 +52,10 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
     return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().split('T')[0];
   });
   const [selectedClient, setSelectedClient] = useState<string>('todos');
+  const [selectedPaymentStatus, setSelectedPaymentStatus] = useState<'todos' | PaymentStatus>('todos');
 
   const [pdfSuccessMessage, setPdfSuccessMessage] = useState<string | null>(null);
+  const [paymentToastMessage, setPaymentToastMessage] = useState<string | null>(null);
 
   const loadHistory = useCallback(() => {
     setIsLoading(true);
@@ -78,7 +82,7 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
     return Array.from(set).sort();
   }, [allServices]);
 
-  // Filtragem dos serviços por período e cliente
+  // Filtragem dos serviços por período, cliente e status de pagamento
   const filteredServices = useMemo(() => {
     return allServices.filter((service) => {
       // Filtro de data
@@ -92,11 +96,19 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
         }
       }
 
+      // Filtro de status de pagamento
+      if (selectedPaymentStatus !== 'todos') {
+        const itemPaymentStatus: PaymentStatus = service.payment_status || 'a_receber';
+        if (itemPaymentStatus !== selectedPaymentStatus) {
+          return false;
+        }
+      }
+
       return true;
     });
-  }, [allServices, startDate, endDate, selectedClient]);
+  }, [allServices, startDate, endDate, selectedClient, selectedPaymentStatus]);
 
-  // Consolidação de métricas filtradas
+  // Consolidação de métricas filtradas dinamicamente
   const totalFilteredHours = useMemo(() => {
     const sum = filteredServices.reduce((acc, curr) => acc + (curr.total_hours || 0), 0);
     return Number(sum.toFixed(1));
@@ -108,6 +120,48 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
       return acc + (curr.total_amount !== undefined ? curr.total_amount : curr.total_hours * rate);
     }, 0);
   }, [filteredServices]);
+
+  const totalPaidAmount = useMemo(() => {
+    return filteredServices.reduce((acc, curr) => {
+      const status = curr.payment_status || 'a_receber';
+      if (status !== 'pago') return acc;
+      const rate = curr.hourly_rate || 0;
+      return acc + (curr.total_amount !== undefined ? curr.total_amount : curr.total_hours * rate);
+    }, 0);
+  }, [filteredServices]);
+
+  const totalReceivableAmount = useMemo(() => {
+    return filteredServices.reduce((acc, curr) => {
+      const status = curr.payment_status || 'a_receber';
+      if (status !== 'a_receber') return acc;
+      const rate = curr.hourly_rate || 0;
+      return acc + (curr.total_amount !== undefined ? curr.total_amount : curr.total_hours * rate);
+    }, 0);
+  }, [filteredServices]);
+
+  const handleTogglePaymentStatus = async (
+    e: React.MouseEvent,
+    service: ExtendedWorkLog
+  ) => {
+    e.stopPropagation();
+    const current: PaymentStatus = service.payment_status || 'a_receber';
+    const nextStatus: PaymentStatus = current === 'pago' ? 'a_receber' : 'pago';
+
+    await updateWorkLogPaymentStatus(service.id, nextStatus);
+    setAllServices((prev) =>
+      prev.map((item) =>
+        String(item.id) === String(service.id)
+          ? { ...item, payment_status: nextStatus }
+          : item
+      )
+    );
+    setPaymentToastMessage(
+      nextStatus === 'pago'
+        ? 'Status financeiro atualizado para "Pago"!'
+        : 'Status financeiro atualizado para "A receber"!'
+    );
+    setTimeout(() => setPaymentToastMessage(null), 3500);
+  };
 
   // Disparo da geração de PDF
   const handleGeneratePdf = () => {
@@ -209,26 +263,48 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
             </div>
           </div>
 
-          {/* Seletor de Cliente */}
-          <div className="relative">
-            <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none text-[#64748B]">
-              <Users className="w-3.5 h-3.5" />
+          {/* Seletor de Cliente e Status de Pagamento */}
+          <div className="grid grid-cols-1 gap-2">
+            <div className="relative">
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none text-[#64748B]">
+                <Users className="w-3.5 h-3.5" />
+              </div>
+              <select
+                id="select-client"
+                value={selectedClient}
+                onChange={(e) => setSelectedClient(e.target.value)}
+                className="w-full h-9 pl-8 pr-7 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-xs font-bold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] appearance-none cursor-pointer"
+              >
+                <option value="todos">Todos os Clientes</option>
+                {uniqueClients.map((client) => (
+                  <option key={client} value={client}>
+                    {client}
+                  </option>
+                ))}
+              </select>
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[#64748B] text-[10px]">
+                ▼
+              </div>
             </div>
-            <select
-              id="select-client"
-              value={selectedClient}
-              onChange={(e) => setSelectedClient(e.target.value)}
-              className="w-full h-9 pl-8 pr-7 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-xs font-bold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] appearance-none cursor-pointer"
-            >
-              <option value="todos">Todos os Clientes</option>
-              {uniqueClients.map((client) => (
-                <option key={client} value={client}>
-                  {client}
-                </option>
-              ))}
-            </select>
-            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[#64748B] text-[10px]">
-              ▼
+
+            <div className="relative">
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none text-[#64748B]">
+                <BadgeDollarSign className="w-3.5 h-3.5" />
+              </div>
+              <select
+                id="select-payment-status"
+                aria-label="Status de Pagamento"
+                value={selectedPaymentStatus}
+                onChange={(e) => setSelectedPaymentStatus(e.target.value as 'todos' | PaymentStatus)}
+                className="w-full h-9 pl-8 pr-7 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-xs font-bold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] appearance-none cursor-pointer"
+              >
+                <option value="todos">Todos os Pagamentos</option>
+                <option value="a_receber">A receber</option>
+                <option value="pago">Pago</option>
+              </select>
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[#64748B] text-[10px]">
+                ▼
+              </div>
             </div>
           </div>
         </div>
@@ -237,34 +313,59 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
       {/* 3. CORPO: CARDS DE RESUMO DO PERÍODO & LISTAGEM */}
       <main className="flex-1 px-6 py-4 space-y-4">
         
-        {pdfSuccessMessage && (
-          <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold rounded-xl flex items-center gap-2 animate-fade-in">
+        {(pdfSuccessMessage || paymentToastMessage) && (
+          <div
+            role="status"
+            className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold rounded-xl flex items-center gap-2 animate-fade-in"
+          >
             <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-            <span>{pdfSuccessMessage}</span>
+            <span>{paymentToastMessage || pdfSuccessMessage}</span>
           </div>
         )}
 
-        {/* Cards de Resumo idênticos ao protótipo financeiro.jpg */}
-        <div className="grid grid-cols-2 gap-3.5">
+        {/* Cards de Resumo Dinâmicos */}
+        <div className="grid grid-cols-2 gap-3">
           {/* Card Horas Apuradas */}
-          <div className="bg-[#DCFCE7]/70 border border-[#86EFAC] rounded-2xl p-4 shadow-xs flex flex-col justify-between h-24">
-            <div className="flex items-center gap-1.5 text-[#166534]">
+          <div className="bg-slate-100/90 border border-slate-200 rounded-2xl p-3.5 shadow-xs flex flex-col justify-between h-20">
+            <div className="flex items-center gap-1.5 text-[#334155]">
               <Clock className="w-4 h-4" />
               <span className="text-xs font-bold">Total Horas</span>
             </div>
-            <p className="text-2xl font-extrabold text-[#166534]">
+            <p id="summary-total-hours" className="text-xl font-extrabold text-[#0F172A]">
               {totalFilteredHours}h
             </p>
           </div>
 
-          {/* Card Valor a Faturar */}
-          <div className="bg-[#FEF3C7]/70 border border-[#FDE68A] rounded-2xl p-4 shadow-xs flex flex-col justify-between h-24">
+          {/* Card Total Faturado */}
+          <div className="bg-blue-50/80 border border-blue-200 rounded-2xl p-3.5 shadow-xs flex flex-col justify-between h-20">
+            <div className="flex items-center gap-1.5 text-blue-800">
+              <DollarSign className="w-4 h-4" />
+              <span className="text-xs font-bold">Total Faturado</span>
+            </div>
+            <p id="summary-total-billed" className="text-sm font-extrabold text-blue-900 truncate">
+              R$ {totalFilteredAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            </p>
+          </div>
+
+          {/* Card Total Recebido / Pago */}
+          <div className="bg-[#DCFCE7]/70 border border-[#86EFAC] rounded-2xl p-3.5 shadow-xs flex flex-col justify-between h-20">
+            <div className="flex items-center gap-1.5 text-[#166534]">
+              <CheckCircle2 className="w-4 h-4" />
+              <span className="text-xs font-bold">Total Pago</span>
+            </div>
+            <p id="summary-total-paid" className="text-sm font-extrabold text-[#166534] truncate">
+              R$ {totalPaidAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            </p>
+          </div>
+
+          {/* Card Total a Receber */}
+          <div className="bg-[#FEF3C7]/70 border border-[#FDE68A] rounded-2xl p-3.5 shadow-xs flex flex-col justify-between h-20">
             <div className="flex items-center gap-1.5 text-[#B45309]">
               <DollarSign className="w-4 h-4" />
-              <span className="text-xs font-bold">A Cobrar</span>
+              <span className="text-xs font-bold">Total a Receber</span>
             </div>
-            <p className="text-base font-extrabold text-[#B45309] truncate">
-              R$ {totalFilteredAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            <p id="summary-total-receivable" className="text-sm font-extrabold text-[#B45309] truncate">
+              R$ {totalReceivableAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
             </p>
           </div>
         </div>
@@ -307,17 +408,27 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
                   <span className="text-sm font-extrabold text-[#0F172A]">
                     R$ {service.total_amount?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                   </span>
-                  <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                      service.status === 'aprovado'
-                        ? 'bg-[#DCFCE7] text-[#166534]'
-                        : service.status === 'pendente'
-                        ? 'bg-[#FEF3C7] text-[#B45309]'
-                        : 'bg-[#FEE2E2] text-[#991B1B]'
-                    }`}
-                  >
-                    {service.status === 'aprovado' ? 'Faturável' : service.status}
-                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={(e) => handleTogglePaymentStatus(e, service)}
+                      title="Clique para alternar status de pagamento"
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1 transition-all cursor-pointer ${
+                        (service.payment_status || 'a_receber') === 'pago'
+                          ? 'bg-[#DCFCE7] text-[#166534] border border-[#86EFAC]'
+                          : 'bg-[#FEF3C7] text-[#B45309] border border-[#FDE68A]'
+                      }`}
+                    >
+                      {(service.payment_status || 'a_receber') === 'pago' ? (
+                        <>
+                          <CheckCircle2 className="w-3 h-3 text-[#166534]" />
+                          <span>Pago</span>
+                        </>
+                      ) : (
+                        <span>A receber</span>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             ))

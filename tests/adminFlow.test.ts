@@ -3,6 +3,7 @@ import {
   fetchAdminMetrics,
   fetchAdminWorkLogs,
   updateAdminWorkLog,
+  updateWorkLogPaymentStatus,
   approveWorkLog,
   rejectWorkLog,
   fetchMachines,
@@ -243,6 +244,39 @@ describe('Fluxo Administrativo - Gestão, Conferência e Métricas Financeiras',
       expect(updated?.hourly_rate).toBe(200);
       expect(updated?.total_amount).toBe(1300);
       expect(updated?.observations).toBe('Observação revisada pelo gestor');
+    });
+
+    it('deve assumir payment_status "a_receber" por padrão e atualizar para "pago" com updateWorkLogPaymentStatus', async () => {
+      const testId = await db.offline_work_logs.add({
+        machine_id: 'mach-cat-01',
+        machine_name: 'Retroescavadeira 01',
+        operator_id: 'op-01',
+        operator_name: 'João Silva',
+        client_name: 'Cliente Pagamento',
+        service_date: '2026-10-28',
+        start_hours: 1000,
+        end_hours: 1005,
+        total_hours: 5,
+        observations: null,
+        status: 'aprovado',
+        hourly_rate: 160,
+        total_amount: 800,
+        sync_status: 'synced',
+        created_at: new Date().toISOString(),
+      });
+
+      const initialList = await fetchAdminWorkLogs('todos');
+      expect(initialList.length).toBe(1);
+      expect(initialList[0].payment_status).toBe('a_receber');
+
+      const updateRes = await updateWorkLogPaymentStatus(testId as number, 'pago');
+      expect(updateRes.success).toBe(true);
+
+      const updatedRecord = await db.offline_work_logs.get(testId as number);
+      expect(updatedRecord?.payment_status).toBe('pago');
+
+      const afterList = await fetchAdminWorkLogs('todos');
+      expect(afterList[0].payment_status).toBe('pago');
     });
   });
 

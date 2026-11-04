@@ -7,6 +7,8 @@ export type UserRole = 'operator' | 'admin';
 
 export type WorkLogStatus = 'pendente' | 'aprovado' | 'rejeitado' | 'em_andamento';
 
+export type PaymentStatus = 'pago' | 'a_receber';
+
 export type FinancialStatus = 'pago' | 'pendente' | 'cancelado';
 
 export type FinancialType = 'receita' | 'despesa';
@@ -55,6 +57,7 @@ export interface WorkLog {
   total_hours: number; // Horas totais calculadas (end_hours - start_hours)
   observations: string | null; // Observações opcionais do operador
   status: WorkLogStatus; // 'pendente' | 'aprovado' | 'rejeitado' | 'em_andamento'
+  payment_status?: PaymentStatus; // 'pago' | 'a_receber' (padrão: 'a_receber')
   started_at?: string; // Horário de início do serviço (ISO)
   finished_at?: string; // Horário de término do serviço (ISO)
   start_time?: string; // Hora real de início formatada (ex: "08:15")
@@ -113,6 +116,7 @@ export interface OfflineWorkLog {
   sync_status: SyncStatus; // 'pending' | 'synced'
   synced?: boolean; // true quando sincronizado com o Supabase
   status?: WorkLogStatus; // 'pendente' | 'aprovado' | 'rejeitado' | 'em_andamento'
+  payment_status?: PaymentStatus; // 'pago' | 'a_receber' (padrão: 'a_receber')
   started_at?: string; // Horário de início do serviço (ISO)
   finished_at?: string; // Horário de término do serviço (ISO)
   start_time?: string; // Hora real de início formatada (ex: "08:15")
@@ -189,6 +193,7 @@ export type Database = {
           total_hours?: number; // Coluna gerada (GENERATED ALWAYS) no Postgres
           observations?: string | null;
           status?: WorkLogStatus;
+          payment_status?: PaymentStatus;
           hourly_rate?: number;
           total_amount?: number;
           created_at?: string;
@@ -206,6 +211,7 @@ export type Database = {
           total_hours?: number;
           observations?: string | null;
           status?: WorkLogStatus;
+          payment_status?: PaymentStatus;
           hourly_rate?: number;
           total_amount?: number;
           created_at?: string;

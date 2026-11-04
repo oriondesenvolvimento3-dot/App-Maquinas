@@ -3,12 +3,13 @@ import {
   fetchAdminWorkLogs,
   fetchMachines,
   updateAdminWorkLog,
+  updateWorkLogPaymentStatus,
   approveWorkLog,
   rejectWorkLog,
   deleteWorkLog,
   type ExtendedWorkLog,
 } from '../../services/adminService';
-import type { Machine } from '../../types/database';
+import type { Machine, PaymentStatus } from '../../types/database';
 import { generateSingleServiceReceiptPdf } from '../../utils/pdfGenerator';
 import {
   ArrowLeft,
@@ -54,6 +55,8 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
   const [endHoursInput, setEndHoursInput] = useState<string>('0');
   const [hourlyRateInput, setHourlyRateInput] = useState<string>('0');
   const [observationsInput, setObservationsInput] = useState<string>('');
+  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('a_receber');
+  const [isUpdatingPayment, setIsUpdatingPayment] = useState<boolean>(false);
 
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [isSavingEdits, setIsSavingEdits] = useState<boolean>(false);
@@ -85,6 +88,7 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
         setEndHoursInput(String(found.end_hours ?? 0));
         setHourlyRateInput(String(found.hourly_rate ?? 0));
         setObservationsInput(found.observations || '');
+        setPaymentStatus(found.payment_status || 'a_receber');
       }
     });
   }, [serviceId]);
@@ -103,6 +107,34 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
       if (chosen.hourly_rate !== undefined && chosen.hourly_rate > 0) {
         setHourlyRateInput(String(chosen.hourly_rate));
       }
+    }
+  };
+
+  /**
+   * Atualiza imediatamente o status de pagamento ('pago' | 'a_receber') no Supabase e Dexie
+   */
+  const handleChangePaymentStatus = async (newStatus: PaymentStatus) => {
+    if (!service || isUpdatingPayment || paymentStatus === newStatus) return;
+    setIsUpdatingPayment(true);
+    setPaymentStatus(newStatus);
+
+    const res = await updateWorkLogPaymentStatus(service.id, newStatus);
+    setIsUpdatingPayment(false);
+
+    if (res.success) {
+      setService((prev) => (prev ? { ...prev, payment_status: newStatus } : null));
+      setFeedback({
+        type: 'success',
+        message:
+          newStatus === 'pago'
+            ? 'Status de pagamento atualizado para Pago!'
+            : 'Status de pagamento atualizado para A receber!',
+      });
+    } else {
+      setFeedback({
+        type: 'error',
+        message: res.error || 'Erro ao atualizar status de pagamento.',
+      });
     }
   };
 
@@ -548,6 +580,51 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
               <p id="service-real-time-window" className="text-xs font-extrabold text-[#0F172A]">
                 Horário: {startClock} - {endClock}
               </p>
+            </div>
+          </div>
+
+          {/* Controle de Status de Pagamento: "A receber" vs "Pago" */}
+          <div className="p-3.5 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-[#0F172A] flex items-center gap-1.5">
+                <DollarSign className="w-4 h-4 text-[#F59E0B]" />
+                <span>Status de Pagamento</span>
+              </span>
+              <span className="text-[11px] font-semibold text-[#64748B]">
+                Toque para alterar
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <button
+                id="btn-payment-status-a-receber"
+                type="button"
+                disabled={isUpdatingPayment}
+                onClick={() => handleChangePaymentStatus('a_receber')}
+                className={`h-10 px-3 rounded-xl text-xs font-extrabold border transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  paymentStatus === 'a_receber'
+                    ? 'bg-[#FEF3C7] text-[#B45309] border-[#F59E0B] shadow-2xs ring-2 ring-[#FDE68A]'
+                    : 'bg-white text-[#64748B] border-[#CBD5E1] hover:bg-amber-50/40'
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5" />
+                <span>A receber</span>
+              </button>
+
+              <button
+                id="btn-payment-status-pago"
+                type="button"
+                disabled={isUpdatingPayment}
+                onClick={() => handleChangePaymentStatus('pago')}
+                className={`h-10 px-3 rounded-xl text-xs font-extrabold border transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  paymentStatus === 'pago'
+                    ? 'bg-[#DCFCE7] text-[#166534] border-[#16A34A] shadow-2xs ring-2 ring-[#86EFAC]'
+                    : 'bg-white text-[#64748B] border-[#CBD5E1] hover:bg-emerald-50/40'
+                }`}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Pago</span>
+              </button>
             </div>
           </div>
 
