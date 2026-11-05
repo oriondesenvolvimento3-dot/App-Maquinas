@@ -1,6 +1,7 @@
 import React from 'react';
 import type { WorkLogFormData } from '../../services/workLogService';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
+import { calculateTotalHours, formatTimeHHMM } from '../../utils/formatters';
 import {
   Check,
   Truck,
@@ -18,17 +19,14 @@ interface ServiceSuccessProps {
 export const ServiceSuccess: React.FC<ServiceSuccessProps> = ({ serviceData, onBackToHome }) => {
   const { isOnline } = useNetworkStatus();
 
-  const totalHours = Math.max(
-    0,
-    Number((serviceData.end_hours - serviceData.start_hours).toFixed(1))
-  );
+  const totalHours = calculateTotalHours(serviceData.start_hours, serviceData.end_hours);
 
   return (
     <div className="relative flex flex-col justify-between w-full max-w-md mx-auto min-h-screen bg-[#F8FAFC] shadow-2xl">
       
       {/* 1. ESPAÇAMENTO STATUS BAR */}
       <div className="w-full h-8 pt-3 px-6 flex justify-between items-center text-xs text-[#0F172A]">
-        <span className="font-semibold">9:41</span>
+        <span className="font-semibold">{formatTimeHHMM()}</span>
         {!isOnline && (
           <div className="flex items-center gap-1 text-[10px] bg-[#FEF3C7] text-[#B45309] font-bold px-2 py-0.5 rounded-full">
             <WifiOff className="w-3 h-3" />

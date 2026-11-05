@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie';
-import type { OfflineWorkLog, Machine, Profile } from '../types/database';
+import type { OfflineWorkLog, Machine, Profile, ScheduledService } from '../types/database';
 
 /**
  * Banco de dados local IndexedDB com Dexie.js para arquitetura Offline-First
@@ -12,6 +12,9 @@ export class RetroscaveDexieDB extends Dexie {
   // Tabelas de cache local para seleção de máquinas e operadores em modo offline
   cached_machines!: Table<Machine, string>;
   cached_profiles!: Table<Profile, string>;
+
+  // Tabela de agendamentos de serviços (Agenda Administrativa)
+  scheduled_services!: Table<ScheduledService, number>;
 
   constructor() {
     super('retroscave_db');
@@ -45,6 +48,18 @@ export class RetroscaveDexieDB extends Dexie {
       offline_work_logs: '++id, server_id, machine_id, operator_id, service_date, sync_status, status, created_at',
       cached_machines: 'id, name, active',
       cached_profiles: 'id, role',
+    });
+
+    /**
+     * Definição de esquema da versão 4:
+     * - Adiciona tabela 'scheduled_services' para a Agenda de Serviços
+     */
+    this.version(4).stores({
+      offline_work_logs: '++id, server_id, machine_id, operator_id, service_date, sync_status, status, created_at',
+      cached_machines: 'id, name, active',
+      cached_profiles: 'id, role',
+      scheduled_services:
+        '++id, server_id, scheduled_date, status, client_name, machine_id, operator_id, sync_status, created_at',
     });
   }
 }
@@ -93,6 +108,41 @@ export async function markWorkLogAsSynced(
   serverId: string
 ): Promise<number> {
   return await db.offline_work_logs.update(localId, {
+    sync_status: 'synced',
+    synced: true,
+    server_id: serverId,
+    synced_at: new Date().toISOString(),
+  });
+}
+
+/**
+ * Recupera todos os agendamentos da Agenda que aguardam sincronização com o Supabase
+ */
+export async function getPendingScheduledServices(): Promise<ScheduledService[]> {
+  try {
+    const pendingByIndex = await db.scheduled_services
+      .where('sync_status')
+      .equals('pending')
+      .toArray();
+    if (pendingByIndex.length > 0) {
+      return pendingByIndex;
+    }
+  } catch {
+    // Fallback caso o índice não esteja disponível
+  }
+
+  const all = await db.scheduled_services.toArray();
+  return all.filter((item) => item.sync_status === 'pending' || item.synced === false);
+}
+
+/**
+ * Marca um agendamento local como sincronizado após sucesso no Supabase
+ */
+export async function markScheduledServiceAsSynced(
+  localId: number,
+  serverId: string
+): Promise<number> {
+  return await db.scheduled_services.update(localId, {
     sync_status: 'synced',
     synced: true,
     server_id: serverId,
@@ -173,11 +223,16 @@ export async function setCachedProfiles(profiles: Profile[]): Promise<void> {
  * Limpa todos os dados locais do Dexie (IndexedDB)
  */
 export async function clearAllLocalData(): Promise<void> {
-  await db.transaction('rw', [db.offline_work_logs, db.cached_machines, db.cached_profiles], async () => {
-    await db.offline_work_logs.clear();
-    await db.cached_machines.clear();
-    await db.cached_profiles.clear();
-  });
+  await db.transaction(
+    'rw',
+    [db.offline_work_logs, db.cached_machines, db.cached_profiles, db.scheduled_services],
+    async () => {
+      await db.offline_work_logs.clear();
+      await db.cached_machines.clear();
+      await db.cached_profiles.clear();
+      await db.scheduled_services.clear();
+    }
+  );
 }
 
 /**

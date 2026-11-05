@@ -6,7 +6,13 @@ import {
   getCachedActiveMachines,
   setCachedMachines,
 } from '../lib/dexieDb';
+import {
+  formatTimeHHMM,
+  calculateTotalHours,
+} from '../utils/formatters';
 import type { Machine, OfflineWorkLog } from '../types/database';
+
+export { formatTimeHHMM, calculateTotalHours };
 
 export interface StartServiceFormData {
   machine_id: string;
@@ -33,26 +39,6 @@ export interface FinishServiceFormData {
   start_time?: string;
   finished_at?: string;
   end_time?: string;
-}
-
-/**
- * Formata um timestamp ISO ou Date no padrão HH:mm (ex: "08:15")
- */
-export function formatTimeHHMM(val?: string | Date): string {
-  if (!val) {
-    const d = new Date();
-    return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  }
-  if (typeof val === 'string' && /^\d{2}:\d{2}/.test(val.trim())) {
-    return val.trim().slice(0, 5);
-  }
-  try {
-    const d = typeof val === 'string' ? new Date(val) : val;
-    if (isNaN(d.getTime())) return '--:--';
-    return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return '--:--';
-  }
 }
 
 export interface WorkLogFormData {
@@ -112,15 +98,6 @@ export async function getActiveMachines(isOnline?: boolean): Promise<Machine[]> 
  * Alias para compatibilidade reversa
  */
 export const ensureCachedMachines = getActiveMachines;
-
-/**
- * Calcula a quantidade de horas trabalhadas com precisão de 1 casa decimal
- */
-export function calculateTotalHours(startHours: number, endHours: number): number {
-  if (isNaN(startHours) || isNaN(endHours)) return 0;
-  const diff = endHours - startHours;
-  return diff >= 0 ? Number(diff.toFixed(1)) : 0;
-}
 
 /**
  * Valida os campos da conclusão de serviço

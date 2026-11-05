@@ -9,15 +9,18 @@ import { AdminDashboard } from './pages/admin/AdminDashboard';
 import { AdminServiceList } from './pages/admin/AdminServiceList';
 import { AdminServiceDetail } from './pages/admin/AdminServiceDetail';
 import { AdminHistory } from './pages/admin/AdminHistory';
+import { AdminAgenda } from './pages/admin/AdminAgenda';
 import { MachineManagement } from './pages/admin/MachineManagement';
 import {
   initAutoSync,
   SYNC_COMPLETE_EVENT,
+  SYNC_ERROR_EVENT,
   type SyncCompleteEventDetail,
+  type SyncErrorEventDetail,
 } from './services/syncService';
 import type { WorkLogFormData } from './services/workLogService';
 import type { OfflineWorkLog } from './types/database';
-import { CheckCircle2 } from 'lucide-react';
+import { CheckCircle2, AlertTriangle } from 'lucide-react';
 
 export type AppRoute =
   | 'home'
@@ -28,6 +31,7 @@ export type AppRoute =
   | 'admin-services'
   | 'admin-service-detail'
   | 'admin-history'
+  | 'admin-agenda'
   | 'admin-machines';
 
 /**
@@ -35,7 +39,12 @@ export type AppRoute =
  */
 const AppNavigator: React.FC = () => {
   const { user, profile, loading } = useAuth();
-  const [currentRoute, setCurrentRoute] = useState<AppRoute>('home');
+  const [currentRoute, setCurrentRoute] = useState<AppRoute>(() => {
+    if (typeof window !== 'undefined' && window.location?.pathname === '/admin/agenda') {
+      return 'admin-agenda';
+    }
+    return 'home';
+  });
   const [activeServiceToFinish, setActiveServiceToFinish] = useState<OfflineWorkLog | null>(null);
   const [lastRegisteredService, setLastRegisteredService] = useState<WorkLogFormData | null>(null);
   const [selectedServiceId, setSelectedServiceId] = useState<string | number | null>(null);
@@ -133,6 +142,7 @@ const AppNavigator: React.FC = () => {
           onNavigateToMachines={() => setCurrentRoute('admin-machines')}
           onSwitchToOperator={() => setCurrentRoute('home')}
           onNavigateToFinancial={() => setCurrentRoute('admin-history')}
+          onNavigateToAgenda={() => setCurrentRoute('admin-agenda')}
         />
       );
 
@@ -146,6 +156,7 @@ const AppNavigator: React.FC = () => {
           }}
           onNavigateToMachines={() => setCurrentRoute('admin-machines')}
           onNavigateToFinancial={() => setCurrentRoute('admin-history')}
+          onNavigateToAgenda={() => setCurrentRoute('admin-agenda')}
         />
       );
 
@@ -160,6 +171,7 @@ const AppNavigator: React.FC = () => {
             }}
             onNavigateToMachines={() => setCurrentRoute('admin-machines')}
             onNavigateToFinancial={() => setCurrentRoute('admin-history')}
+            onNavigateToAgenda={() => setCurrentRoute('admin-agenda')}
           />
         );
       }
@@ -176,6 +188,21 @@ const AppNavigator: React.FC = () => {
         <AdminHistory
           onNavigateToDashboard={() => setCurrentRoute('admin-dashboard')}
           onNavigateToServices={() => setCurrentRoute('admin-services')}
+          onNavigateToMachines={() => setCurrentRoute('admin-machines')}
+          onNavigateToAgenda={() => setCurrentRoute('admin-agenda')}
+          onSelectServiceDetail={(id) => {
+            setSelectedServiceId(id);
+            setCurrentRoute('admin-service-detail');
+          }}
+        />
+      );
+
+    case 'admin-agenda':
+      return (
+        <AdminAgenda
+          onNavigateToDashboard={() => setCurrentRoute('admin-dashboard')}
+          onNavigateToServices={() => setCurrentRoute('admin-services')}
+          onNavigateToFinancial={() => setCurrentRoute('admin-history')}
           onNavigateToMachines={() => setCurrentRoute('admin-machines')}
           onSelectServiceDetail={(id) => {
             setSelectedServiceId(id);
@@ -209,6 +236,7 @@ const AppNavigator: React.FC = () => {
 
 export function App() {
   const [syncToast, setSyncToast] = useState<string | null>(null);
+  const [syncErrorToast, setSyncErrorToast] = useState<string | null>(null);
 
   useEffect(() => {
     const cleanupAutoSync = initAutoSync();
@@ -221,10 +249,19 @@ export function App() {
       setSyncToast(message);
     };
 
+    const handleSyncError = (event: Event) => {
+      const customEvent = event as CustomEvent<SyncErrorEventDetail>;
+      if (customEvent.detail?.message) {
+        setSyncErrorToast(customEvent.detail.message);
+      }
+    };
+
     window.addEventListener(SYNC_COMPLETE_EVENT, handleSyncComplete);
+    window.addEventListener(SYNC_ERROR_EVENT, handleSyncError);
     return () => {
       cleanupAutoSync();
       window.removeEventListener(SYNC_COMPLETE_EVENT, handleSyncComplete);
+      window.removeEventListener(SYNC_ERROR_EVENT, handleSyncError);
     };
   }, []);
 
@@ -236,6 +273,14 @@ export function App() {
     return () => clearTimeout(timer);
   }, [syncToast]);
 
+  useEffect(() => {
+    if (!syncErrorToast) return;
+    const timer = setTimeout(() => {
+      setSyncErrorToast(null);
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [syncErrorToast]);
+
   return (
     <AuthProvider>
       {syncToast && (
@@ -246,6 +291,16 @@ export function App() {
         >
           <CheckCircle2 className="w-4 h-4 text-[#FBBF24] shrink-0" />
           <span>{syncToast}</span>
+        </div>
+      )}
+      {syncErrorToast && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="fixed top-16 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[calc(100%-2rem)] bg-red-600 text-white px-4 py-3 rounded-2xl shadow-xl border border-red-400 flex items-center gap-2.5 text-xs font-bold animate-fade-in"
+        >
+          <AlertTriangle className="w-4 h-4 text-white shrink-0" />
+          <span>Erro na nuvem: {syncErrorToast}</span>
         </div>
       )}
       <AppNavigator />

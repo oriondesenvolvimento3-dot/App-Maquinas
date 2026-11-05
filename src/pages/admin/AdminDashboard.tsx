@@ -6,6 +6,8 @@ import {
   type ExtendedWorkLog,
 } from '../../services/adminService';
 import { SYNC_COMPLETE_EVENT } from '../../services/syncService';
+import { formatCurrencyBRL, formatTimeHHMM } from '../../utils/formatters';
+import { AdminBottomNav } from '../../components/AdminBottomNav';
 import {
   Calendar,
   Clock,
@@ -14,10 +16,6 @@ import {
   Truck,
   Menu,
   HardHat,
-  Home,
-  CheckSquare,
-  BadgeDollarSign,
-  MoreHorizontal,
   ChevronRight,
 } from 'lucide-react';
 
@@ -27,6 +25,7 @@ interface AdminDashboardProps {
   onNavigateToMachines: () => void;
   onSwitchToOperator: () => void;
   onNavigateToFinancial?: () => void;
+  onNavigateToAgenda?: () => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -35,6 +34,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onNavigateToMachines,
   onSwitchToOperator,
   onNavigateToFinancial,
+  onNavigateToAgenda,
 }) => {
 
   const [metrics, setMetrics] = useState<AdminMetrics>({
@@ -98,7 +98,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* 1. TOPO: STATUS BAR & CABEÇALHO */}
       <header className="px-6 pt-4 pb-3 bg-white border-b border-[#E2E8F0] sticky top-0 z-20">
         <div className="flex items-center justify-between text-xs text-[#0F172A] mb-2 font-medium">
-          <span>9:41</span>
+          <span>{formatTimeHHMM()}</span>
           <div className="flex items-center gap-1.5 font-semibold text-[11px] text-[#64748B]">
             <span>Admin</span>
           </div>
@@ -173,7 +173,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <div>
               <p className="text-xs font-medium text-[#64748B]">Valor faturado</p>
               <p className="text-base font-bold text-[#0F172A] truncate">
-                R$ {metrics.billedAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                {formatCurrencyBRL(metrics.billedAmount)}
               </p>
             </div>
           </div>
@@ -188,7 +188,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <div>
               <p className="text-xs font-medium text-[#64748B]">Pendentes</p>
               <p className="text-base font-bold text-[#0F172A] truncate">
-                R$ {metrics.pendingAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                {formatCurrencyBRL(metrics.pendingAmount)}
               </p>
             </div>
           </div>
@@ -236,7 +236,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         {service.machine_name} • {service.total_hours}h
                       </p>
                       <p className="text-sm font-bold text-[#0F172A] mt-0.5">
-                        R$ {service.total_amount?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        {formatCurrencyBRL(service.total_amount)}
                       </p>
                     </div>
                   </div>
@@ -251,47 +251,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       </main>
 
-      {/* 3. BARRA INFERIOR (BOTTOM NAVIGATION) IDÊNTICA AO PROTÓTIPO */}
-      <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-[#E2E8F0] px-6 py-2.5 flex items-center justify-between z-40 shadow-lg">
-        {/* Aba Início */}
-        <button
-          type="button"
-          className="flex flex-col items-center gap-1 text-[#0F172A] cursor-pointer"
-        >
-          <Home className="w-5 h-5 stroke-[2.2]" />
-          <span className="text-[10px] font-bold">Início</span>
-        </button>
-
-        {/* Aba Serviços */}
-        <button
-          type="button"
-          onClick={onNavigateToServices}
-          className="flex flex-col items-center gap-1 text-[#64748B] hover:text-[#0F172A] transition-colors cursor-pointer"
-        >
-          <CheckSquare className="w-5 h-5 stroke-[1.8]" />
-          <span className="text-[10px] font-medium">Serviços</span>
-        </button>
-
-        {/* Aba Financeiro */}
-        <button
-          type="button"
-          onClick={onNavigateToFinancial || onNavigateToServices}
-          className="flex flex-col items-center gap-1 text-[#64748B] hover:text-[#0F172A] transition-colors cursor-pointer"
-        >
-          <BadgeDollarSign className="w-5 h-5 stroke-[1.8]" />
-          <span className="text-[10px] font-medium">Financeiro</span>
-        </button>
-
-        {/* Aba Mais (Gestão de Máquinas) */}
-        <button
-          type="button"
-          onClick={onNavigateToMachines}
-          className="flex flex-col items-center gap-1 text-[#64748B] hover:text-[#0F172A] transition-colors cursor-pointer"
-        >
-          <MoreHorizontal className="w-5 h-5 stroke-[1.8]" />
-          <span className="text-[10px] font-medium">Mais</span>
-        </button>
-      </nav>
+      {/* 3. BARRA INFERIOR (BOTTOM NAVIGATION) */}
+      <AdminBottomNav
+        activeTab="inicio"
+        onNavigateToServices={onNavigateToServices}
+        onNavigateToFinancial={onNavigateToFinancial || onNavigateToServices}
+        onNavigateToAgenda={onNavigateToAgenda}
+        onNavigateToMachines={onNavigateToMachines}
+      />
     </div>
   );
 };

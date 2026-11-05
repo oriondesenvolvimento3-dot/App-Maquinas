@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   fetchAdminMetrics,
   fetchAdminWorkLogs,
@@ -9,6 +9,14 @@ import {
   fetchMachines,
   saveMachine,
 } from '../src/services/adminService';
+import {
+  createScheduledService,
+  fetchScheduledServices,
+  updateScheduledService,
+  updateScheduledServiceStatus,
+  deleteScheduledService,
+} from '../src/services/agendaService';
+import { supabase } from '../src/lib/supabase';
 import { db } from '../src/lib/dexieDb';
 
 describe('Fluxo Administrativo - Gestão, Conferência e Métricas Financeiras', () => {
@@ -16,12 +24,14 @@ describe('Fluxo Administrativo - Gestão, Conferência e Métricas Financeiras',
     // Garante banco local 100% limpo antes de cada teste
     await db.offline_work_logs.clear();
     await db.cached_machines.clear();
+    await db.scheduled_services.clear();
   });
 
   afterEach(async () => {
     // Garante limpeza completa após os testes
     await db.offline_work_logs.clear();
     await db.cached_machines.clear();
+    await db.scheduled_services.clear();
   });
 
   describe('Cálculo Financeiro Dinâmico', () => {
@@ -318,6 +328,155 @@ describe('Fluxo Administrativo - Gestão, Conferência e Métricas Financeiras',
       const all = await fetchMachines();
       expect(all.length).toBe(1);
       expect(all[0].name).toBe('Retroescavadeira 05 Turbo');
+    });
+  });
+
+  describe('Agenda de Serviços (agendaService + gravação direta no Supabase)', () => {
+    it('deve criar diretamente no Supabase, listar da nuvem, editar, marcar como concluído, reabrir como agendado e excluir um agendamento sem tocar em work_logs', async () => {
+      const remoteRows: any[] = [];
+      const validMachineUuid = '123e4567-e89b-12d3-a456-426614174000';
+      const validOperatorUuid = '223e4567-e89b-12d3-a456-426614174111';
+      const remoteScheduleUuid = '987e6543-e21b-12d3-a456-426614174999';
+
+      vi.spyOn(supabase, 'from').mockImplementation((table: string) => {
+        if (table === 'scheduled_services') {
+          return {
+            insert: (rows: any[]) => ({
+              select: () => ({
+                single: async () => {
+                  const row = Array.isArray(rows) ? rows[0] : rows;
+                  const createdRow = {
+                    ...row,
+                    id: remoteScheduleUuid,
+                    created_at: new Date().toISOString(),
+                  };
+                  remoteRows.push(createdRow);
+                  return { data: createdRow, error: null };
+                },
+              }),
+            }),
+            select: () => ({
+              order: async () => ({
+                data: remoteRows.map((r) => ({
+                  ...r,
+                  machines: { id: validMachineUuid, name: 'Retroescavadeira 01' },
+                  profiles: { id: validOperatorUuid, full_name: 'João Silva' },
+                })),
+                error: null,
+              }),
+            }),
+            update: (patch: any) => ({
+              eq: async (_col: string, idVal: string) => {
+                const idx = remoteRows.findIndex((r) => r.id === idVal);
+                if (idx >= 0) {
+                  remoteRows[idx] = { ...remoteRows[idx], ...patch };
+                }
+                return { error: null };
+              },
+            }),
+            delete: () => ({
+              eq: async (_col: string, idVal: string) => {
+                const idx = remoteRows.findIndex((r) => r.id === idVal);
+                if (idx >= 0) remoteRows.splice(idx, 1);
+                return { error: null };
+              },
+            }),
+          } as any;
+        }
+
+        return {
+          select: () => ({ order: async () => ({ data: [], error: null }) }),
+        } as any;
+      });
+
+      const created = await createScheduledService({
+        client_name: 'Fazenda Boa Vista',
+        client_phone: '(35) 99876-5432',
+        service_type: 'Abertura de Valas',
+        scheduled_date: '2026-11-10',
+        scheduled_period: 'manha',
+        machine_id: validMachineUuid,
+        machine_name: 'Retroescavadeira 01',
+        operator_id: validOperatorUuid,
+        operator_name: 'João Silva',
+        location: 'Estrada Rural Km 12',
+        estimated_hours: 6,
+        agreed_rate: 180,
+        notes: 'Levar concha estreita',
+      });
+
+      expect(created.success).toBe(true);
+      expect(created.schedule?.id).toBe(remoteScheduleUuid);
+      expect(created.schedule?.status).toBe('agendado');
+      expect(remoteRows.length).toBe(1);
+      expect(remoteRows[0].scheduled_period).toBe('manha');
+      expect(remoteRows[0].estimated_hours).toBe(6);
+      expect(remoteRows[0].agreed_rate).toBe(180);
+
+      // Verifica listagem vinda do Supabase e espelhada no Dexie
+      const allSchedules = await fetchScheduledServices();
+      expect(allSchedules.length).toBe(1);
+      expect(allSchedules[0].client_name).toBe('Fazenda Boa Vista');
+      expect(allSchedules[0].period).toBe('manha');
+
+      // Edita dados do agendamento diretamente no Supabase
+      const updated = await updateScheduledService(remoteScheduleUuid, {
+        scheduled_period: 'integral',
+        service_type: 'Terraplanagem',
+      });
+      expect(updated.success).toBe(true);
+
+      const afterEdit = await fetchScheduledServices();
+      expect(afterEdit[0].period).toBe('integral');
+      expect(afterEdit[0].service_type).toBe('Terraplanagem');
+
+      // Marca como concluído diretamente no Supabase (sem criar apontamento em work_logs)
+      const completeRes = await updateScheduledServiceStatus(remoteScheduleUuid, 'concluido');
+      expect(completeRes.success).toBe(true);
+      const afterComplete = await fetchScheduledServices();
+      expect(afterComplete[0].status).toBe('concluido');
+      expect(await db.offline_work_logs.count()).toBe(0);
+
+      // Reabre como agendado diretamente no Supabase
+      const reopenRes = await updateScheduledServiceStatus(remoteScheduleUuid, 'agendado');
+      expect(reopenRes.success).toBe(true);
+      const afterReopen = await fetchScheduledServices();
+      expect(afterReopen[0].status).toBe('agendado');
+
+      // Exclui agendamento diretamente no Supabase
+      await deleteScheduledService(remoteScheduleUuid);
+      const afterDelete = await fetchScheduledServices();
+      expect(afterDelete.length).toBe(0);
+
+      vi.restoreAllMocks();
+    });
+
+    it('deve reportar erro imediatamente e não confirmar sucesso quando o Supabase rejeitar o insert', async () => {
+      vi.spyOn(supabase, 'from').mockReturnValue({
+        insert: () => ({
+          select: () => ({
+            single: async () => ({
+              data: null,
+              error: { message: 'Violação de RLS na tabela scheduled_services' },
+            }),
+          }),
+        }),
+      } as any);
+
+      const res = await createScheduledService({
+        client_name: 'Cliente Erro',
+        service_type: 'Terraplanagem',
+        scheduled_date: '2026-11-12',
+        scheduled_period: 'manha',
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.error).toContain('Violação de RLS');
+
+      const countInDexie = await db.scheduled_services.count();
+      expect(countInDexie).toBe(0);
+
+      vi.restoreAllMocks();
     });
   });
 });

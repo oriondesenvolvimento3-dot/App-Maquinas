@@ -7,12 +7,10 @@ import {
 } from '../../services/adminService';
 import type { PaymentStatus } from '../../types/database';
 import { SYNC_COMPLETE_EVENT } from '../../services/syncService';
+import { formatDateBr, formatCurrencyBRL, formatTimeHHMM } from '../../utils/formatters';
+import { AdminBottomNav } from '../../components/AdminBottomNav';
 import {
   Truck,
-  Home,
-  CheckSquare,
-  BadgeDollarSign,
-  MoreHorizontal,
   ArrowLeft,
   CheckCircle2,
 } from 'lucide-react';
@@ -22,6 +20,7 @@ interface AdminServiceListProps {
   onSelectService: (serviceId: string | number) => void;
   onNavigateToMachines: () => void;
   onNavigateToFinancial?: () => void;
+  onNavigateToAgenda?: () => void;
 }
 
 export const AdminServiceList: React.FC<AdminServiceListProps> = ({
@@ -29,6 +28,7 @@ export const AdminServiceList: React.FC<AdminServiceListProps> = ({
   onSelectService,
   onNavigateToMachines,
   onNavigateToFinancial,
+  onNavigateToAgenda,
 }) => {
   const [activeFilter, setActiveFilter] = useState<WorkLogFilter>('todos');
   const [services, setServices] = useState<ExtendedWorkLog[]>([]);
@@ -43,7 +43,13 @@ export const AdminServiceList: React.FC<AdminServiceListProps> = ({
     const current: PaymentStatus = service.payment_status || 'a_receber';
     const nextStatus: PaymentStatus = current === 'pago' ? 'a_receber' : 'pago';
 
-    await updateWorkLogPaymentStatus(service.id, nextStatus);
+    const res = await updateWorkLogPaymentStatus(service.id, nextStatus);
+    if (!res.success) {
+      setPaymentToastMessage(res.error || 'Erro ao atualizar status financeiro.');
+      setTimeout(() => setPaymentToastMessage(null), 3500);
+      return;
+    }
+
     setServices((prev) =>
       prev.map((item) =>
         String(item.id) === String(service.id)
@@ -105,25 +111,13 @@ export const AdminServiceList: React.FC<AdminServiceListProps> = ({
     }
   };
 
-  const formatDate = (dateStr: string) => {
-    try {
-      const [year, month, day] = dateStr.split('T')[0].split('-');
-      if (year && month && day) {
-        return `${day}/${month}/${year}`;
-      }
-      return dateStr;
-    } catch {
-      return dateStr;
-    }
-  };
-
   return (
     <div className="relative flex flex-col justify-between w-full max-w-md mx-auto min-h-screen overflow-y-auto bg-[#F8FAFC] shadow-2xl pb-24">
       
       {/* 1. CABEÇALHO SUPERIOR */}
       <header className="px-6 pt-4 pb-3 bg-white border-b border-[#E2E8F0] sticky top-0 z-20">
         <div className="flex items-center justify-between text-xs text-[#0F172A] mb-1 font-medium">
-          <span>9:41</span>
+          <span>{formatTimeHHMM()}</span>
           <button
             type="button"
             onClick={onBackToDashboard}
@@ -236,7 +230,7 @@ export const AdminServiceList: React.FC<AdminServiceListProps> = ({
                     {service.machine_name} • {service.total_hours}h
                   </p>
                   <p className="text-sm font-bold text-[#0F172A] mt-0.5">
-                    R$ {service.total_amount?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    {formatCurrencyBRL(service.total_amount)}
                   </p>
                 </div>
               </div>
@@ -265,7 +259,7 @@ export const AdminServiceList: React.FC<AdminServiceListProps> = ({
                   {getStatusBadge(service.status)}
                 </div>
                 <span className="text-[11px] font-medium text-[#94A3B8]">
-                  {formatDate(service.service_date)}
+                  {formatDateBr(service.service_date)}
                 </span>
               </div>
             </div>
@@ -274,42 +268,13 @@ export const AdminServiceList: React.FC<AdminServiceListProps> = ({
       </main>
 
       {/* 3. BARRA INFERIOR (BOTTOM NAVIGATION) */}
-      <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-[#E2E8F0] px-6 py-2.5 flex items-center justify-between z-40 shadow-lg">
-        <button
-          type="button"
-          onClick={onBackToDashboard}
-          className="flex flex-col items-center gap-1 text-[#64748B] hover:text-[#0F172A] transition-colors cursor-pointer"
-        >
-          <Home className="w-5 h-5 stroke-[1.8]" />
-          <span className="text-[10px] font-medium">Início</span>
-        </button>
-
-        <button
-          type="button"
-          className="flex flex-col items-center gap-1 text-[#0F172A] cursor-pointer"
-        >
-          <CheckSquare className="w-5 h-5 stroke-[2.2]" />
-          <span className="text-[10px] font-bold">Serviços</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={onNavigateToFinancial || onBackToDashboard}
-          className="flex flex-col items-center gap-1 text-[#64748B] hover:text-[#0F172A] transition-colors cursor-pointer"
-        >
-          <BadgeDollarSign className="w-5 h-5 stroke-[1.8]" />
-          <span className="text-[10px] font-medium">Financeiro</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={onNavigateToMachines}
-          className="flex flex-col items-center gap-1 text-[#64748B] hover:text-[#0F172A] transition-colors cursor-pointer"
-        >
-          <MoreHorizontal className="w-5 h-5 stroke-[1.8]" />
-          <span className="text-[10px] font-medium">Mais</span>
-        </button>
-      </nav>
+      <AdminBottomNav
+        activeTab="servicos"
+        onNavigateToDashboard={onBackToDashboard}
+        onNavigateToFinancial={onNavigateToFinancial || onBackToDashboard}
+        onNavigateToAgenda={onNavigateToAgenda}
+        onNavigateToMachines={onNavigateToMachines}
+      />
     </div>
   );
 };

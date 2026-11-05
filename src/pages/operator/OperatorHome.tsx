@@ -7,6 +7,7 @@ import {
   getActiveWorkLogForOperator,
   cancelWorkLog,
 } from '../../services/workLogService';
+import { formatTimeHHMM } from '../../utils/formatters';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import type { OfflineWorkLog } from '../../types/database';
 import {
@@ -176,17 +177,6 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
     }
   };
 
-  // Formata o horário do início do trabalho
-  const formatStartTime = (isoString?: string) => {
-    if (!isoString) return '--:--';
-    try {
-      const date = new Date(isoString);
-      return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    } catch {
-      return '--:--';
-    }
-  };
-
   return (
     <div className="relative flex flex-col justify-between w-full max-w-md mx-auto min-h-screen bg-[#F8FAFC] shadow-2xl overflow-x-hidden">
       
@@ -298,7 +288,7 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
               <div className="bg-white border border-amber-200/70 rounded-xl p-3 shadow-2xs">
                 <p className="text-[11px] font-medium text-[#64748B]">Iniciado às</p>
                 <p className="text-base font-extrabold text-[#0F172A]">
-                  {formatStartTime(activeService.started_at)}
+                  {formatTimeHHMM(activeService.start_time, activeService.started_at)}
                 </p>
               </div>
             </div>

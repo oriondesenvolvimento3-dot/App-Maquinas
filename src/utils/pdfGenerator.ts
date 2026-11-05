@@ -1,5 +1,6 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { formatDateBr, formatCurrencyBRL } from './formatters';
 
 export interface ReportItem {
   date: string;
@@ -22,27 +23,7 @@ export interface ReportData {
   totalAmount: number;
 }
 
-/**
- * Formata data no formato brasileiro DD/MM/AAAA
- */
-function formatDateBr(dateStr: string): string {
-  try {
-    const [year, month, day] = dateStr.split('T')[0].split('-');
-    if (year && month && day) {
-      return `${day}/${month}/${year}`;
-    }
-    return dateStr;
-  } catch {
-    return dateStr;
-  }
-}
-
-/**
- * Formata valor monetário em reais (BRL)
- */
-function formatCurrency(val: number): string {
-  return `R$ ${val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
+const formatCurrency = (val: number): string => formatCurrencyBRL(val);
 
 /**
  * Gera documento PDF profissional A4 para prestação de contas e faturamento de maquinário

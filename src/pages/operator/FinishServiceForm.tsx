@@ -2,10 +2,10 @@ import React, { useState } from 'react';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import {
   finishWorkLog,
-  calculateTotalHours,
   type WorkLogFormData,
   type FinishServiceFormData,
 } from '../../services/workLogService';
+import { calculateTotalHours, formatTimeHHMM } from '../../utils/formatters';
 import type { OfflineWorkLog } from '../../types/database';
 import {
   ArrowLeft,
@@ -43,17 +43,6 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [generalError, setGeneralError] = useState<string | null>(null);
-
-  // Formata hora de início
-  const formatStartTime = (isoString?: string) => {
-    if (!isoString) return '--:--';
-    try {
-      const date = new Date(isoString);
-      return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    } catch {
-      return '--:--';
-    }
-  };
 
   // Cálculo reativo das horas trabalhadas
   const numStart = Number(activeLog.start_hours || 0);
@@ -209,7 +198,9 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
           {activeLog.started_at && (
             <div className="text-[11px] text-slate-500 pt-1 flex items-center justify-between">
               <span>Horário de início:</span>
-              <strong className="text-slate-700 font-semibold">{formatStartTime(activeLog.started_at)}</strong>
+              <strong className="text-slate-700 font-semibold">
+                {formatTimeHHMM(activeLog.start_time, activeLog.started_at)}
+              </strong>
             </div>
           )}
         </div>

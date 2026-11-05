@@ -15,6 +15,42 @@ export type FinancialType = 'receita' | 'despesa';
 
 export type SyncStatus = 'pending' | 'synced';
 
+export type ScheduledServiceStatus = 'agendado' | 'em_andamento' | 'concluido' | 'cancelado';
+
+export type ScheduledServicePeriod = 'manha' | 'tarde' | 'integral';
+
+/**
+ * Agendamento de serviço futuro / ordem programada na Agenda
+ */
+export interface ScheduledService {
+  id?: number | string; // UUID do Supabase (ou ID numérico em cache local)
+  server_id?: string | null; // UUID retornado pelo Supabase
+  client_name: string;
+  client_phone?: string | null;
+  service_type: string; // Ex: 'Terraplanagem', 'Abertura de Valas', 'Limpeza', etc.
+  scheduled_date: string; // YYYY-MM-DD
+  scheduled_period?: ScheduledServicePeriod; // 'manha' | 'tarde' | 'integral' (coluna no Supabase)
+  period: ScheduledServicePeriod; // Alias local ('manha' | 'tarde' | 'integral')
+  machine_id?: string | null;
+  machine_name?: string | null;
+  operator_id?: string | null;
+  operator_name?: string | null;
+  location?: string | null; // Local / Endereço da obra
+  agreement_details?: string | null; // Texto descritivo opcional
+  estimated_hours?: number | null; // Numérico no Supabase
+  agreed_rate?: number | null; // Numérico no Supabase (coluna agreed_rate)
+  agreed_amount?: number | null;
+  observations?: string | null;
+  notes?: string | null; // Observações na tabela remota `scheduled_services`
+  status: ScheduledServiceStatus; // 'agendado' | 'em_andamento' | 'concluido' | 'cancelado'
+  work_log_id?: string | number | null; // Vínculo com apontamento diário iniciado
+  sync_status?: SyncStatus;
+  synced?: boolean;
+  created_at: string;
+  updated_at?: string;
+  synced_at?: string | null;
+}
+
 /**
  * Perfil de usuário / Operador / Administrador
  */
@@ -256,6 +292,42 @@ export type Database = {
           category?: string;
           created_at?: string;
           updated_at?: string;
+        };
+        Relationships: [];
+      };
+      scheduled_services: {
+        Row: { [K in keyof ScheduledService]: ScheduledService[K] };
+        Insert: {
+          id?: string;
+          client_name: string;
+          client_phone?: string | null;
+          service_type: string;
+          scheduled_date: string;
+          scheduled_period?: ScheduledServicePeriod;
+          machine_id?: string | null;
+          operator_id?: string | null;
+          location?: string | null;
+          estimated_hours?: number | null;
+          agreed_rate?: number | null;
+          notes?: string | null;
+          status?: ScheduledServiceStatus;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          client_name?: string;
+          client_phone?: string | null;
+          service_type?: string;
+          scheduled_date?: string;
+          scheduled_period?: ScheduledServicePeriod;
+          machine_id?: string | null;
+          operator_id?: string | null;
+          location?: string | null;
+          estimated_hours?: number | null;
+          agreed_rate?: number | null;
+          notes?: string | null;
+          status?: ScheduledServiceStatus;
+          created_at?: string;
         };
         Relationships: [];
       };

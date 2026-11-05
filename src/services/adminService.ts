@@ -1,6 +1,8 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { db } from '../lib/dexieDb';
-import type { Machine, WorkLogStatus, PaymentStatus } from '../types/database';
+import { toast } from './syncService';
+import { formatTimeHHMM, calculateTotalHours } from '../utils/formatters';
+import type { Machine, WorkLogStatus, PaymentStatus, OfflineWorkLog } from '../types/database';
 
 export interface AdminMetrics {
   totalServices: number;
@@ -49,21 +51,42 @@ export interface AdminWorkLogUpdatePayload {
   payment_status?: PaymentStatus;
 }
 
-/**
- * Converte string de horário (HH:mm ou ISO) para o formato curto HH:mm
- */
-function resolveTimeHHMM(val?: string | null): string | undefined {
+function resolveOptionalTimeHHMM(val?: string | null): string | undefined {
   if (!val) return undefined;
-  if (/^\d{2}:\d{2}/.test(val.trim())) {
-    return val.trim().slice(0, 5);
+  const formatted = formatTimeHHMM(val);
+  return formatted === '--:--' ? undefined : formatted;
+}
+
+/**
+ * Localiza um apontamento no Dexie local pelo ID numérico ou pelo `server_id` UUID.
+ */
+async function findLocalWorkLog(
+  workLogId: string | number
+): Promise<OfflineWorkLog | undefined> {
+  if (typeof workLogId === 'number') {
+    return await db.offline_work_logs.get(workLogId);
   }
+
+  const numericId = parseInt(String(workLogId), 10);
+  if (!isNaN(numericId) && String(numericId) === String(workLogId).trim()) {
+    const byNum = await db.offline_work_logs.get(numericId);
+    if (byNum) return byNum;
+  }
+
   try {
-    const d = new Date(val);
-    if (isNaN(d.getTime())) return undefined;
-    return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const byServer = await db.offline_work_logs
+      .where('server_id')
+      .equals(String(workLogId))
+      .first();
+    if (byServer) return byServer;
   } catch {
-    return undefined;
+    // Fallback varredura completa caso índice esteja em migração
   }
+
+  const allLocal = await db.offline_work_logs.toArray();
+  return allLocal.find(
+    (l) => l.server_id === String(workLogId) || String(l.id) === String(workLogId)
+  );
 }
 
 /**
@@ -80,12 +103,14 @@ export async function fetchAdminMetrics(): Promise<AdminMetrics> {
 
   for (const log of logs) {
     const rawHours = Number(log.total_hours || 0);
-    const startH = Number(log.start_hours || 0);
-    const endH = Number(log.end_hours || 0);
-    const hours = rawHours > 0 ? rawHours : Math.max(0, Number((endH - startH).toFixed(1)));
+    const hours =
+      rawHours > 0 ? rawHours : calculateTotalHours(log.start_hours, log.end_hours);
 
     const rate = log.hourly_rate || 0;
-    const amount = log.total_amount !== undefined && log.total_amount > 0 ? log.total_amount : hours * rate;
+    const amount =
+      log.total_amount !== undefined && log.total_amount > 0
+        ? log.total_amount
+        : hours * rate;
 
     totalHours += hours;
 
@@ -107,8 +132,11 @@ export async function fetchAdminMetrics(): Promise<AdminMetrics> {
 /**
  * 2. Busca apontamentos de serviço com suporte a filtros de status exclusivamente do Supabase/Dexie
  */
-export async function fetchAdminWorkLogs(filterStatus: WorkLogFilter = 'todos'): Promise<ExtendedWorkLog[]> {
-  const online = typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
+export async function fetchAdminWorkLogs(
+  filterStatus: WorkLogFilter = 'todos'
+): Promise<ExtendedWorkLog[]> {
+  const online =
+    typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
 
   let resultLogs: ExtendedWorkLog[] = [];
 
@@ -131,7 +159,9 @@ export async function fetchAdminWorkLogs(filterStatus: WorkLogFilter = 'todos'):
         // Carrega máquinas e perfis locais ou do Dexie para resolver machine_name e hourly_rate
         let cachedMachines = await db.cached_machines.toArray();
         const machineIds = new Set(data.map((item: any) => item.machine_id));
-        const missingMachine = Array.from(machineIds).some((id) => !cachedMachines.some((m) => m.id === id));
+        const missingMachine = Array.from(machineIds).some(
+          (id) => !cachedMachines.some((m) => m.id === id)
+        );
         if (missingMachine || cachedMachines.length === 0) {
           const { data: remoteMachines } = await supabase.from('machines').select('*');
           if (remoteMachines) {
@@ -143,7 +173,9 @@ export async function fetchAdminWorkLogs(filterStatus: WorkLogFilter = 'todos'):
 
         let cachedProfiles = await db.cached_profiles.toArray();
         const profileIds = new Set(data.map((item: any) => item.operator_id));
-        const missingProfile = Array.from(profileIds).some((id) => !cachedProfiles.some((p) => p.id === id));
+        const missingProfile = Array.from(profileIds).some(
+          (id) => !cachedProfiles.some((p) => p.id === id)
+        );
         if (missingProfile || cachedProfiles.length === 0) {
           const { data: remoteProfiles } = await supabase.from('profiles').select('*');
           if (remoteProfiles) {
@@ -162,13 +194,18 @@ export async function fetchAdminWorkLogs(filterStatus: WorkLogFilter = 'todos'):
           const profile = profileMap.get(item.operator_id);
           const localMatch = localByServerId.get(item.id);
 
-          const rate = Number(localMatch?.hourly_rate ?? machine?.hourly_rate ?? 0);
+          const rate = Number(
+            item.hourly_rate ?? localMatch?.hourly_rate ?? machine?.hourly_rate ?? 0
+          );
           const rawHours = Number(item.total_hours ?? 0);
           const startH = Number(item.start_hours ?? 0);
           const endH = Number(item.end_hours ?? 0);
-          const totalHours = rawHours > 0 ? rawHours : Math.max(0, Number((endH - startH).toFixed(1)));
+          const totalHours =
+            rawHours > 0 ? rawHours : calculateTotalHours(startH, endH);
           const totalAmount =
-            localMatch?.total_amount !== undefined && localMatch.total_amount > 0
+            item.total_amount !== undefined && Number(item.total_amount) > 0
+              ? Number(item.total_amount)
+              : localMatch?.total_amount !== undefined && localMatch.total_amount > 0
               ? localMatch.total_amount
               : totalHours * rate;
 
@@ -176,17 +213,23 @@ export async function fetchAdminWorkLogs(filterStatus: WorkLogFilter = 'todos'):
           const finishedAt =
             localMatch?.finished_at ||
             item.finished_at ||
-            (item.status !== 'em_andamento' ? item.updated_at || item.created_at : undefined);
-          const startTime = localMatch?.start_time || resolveTimeHHMM(startedAt);
-          const endTime = localMatch?.end_time || resolveTimeHHMM(finishedAt);
+            (item.status !== 'em_andamento'
+              ? item.updated_at || item.created_at
+              : undefined);
+          const startTime =
+            localMatch?.start_time || resolveOptionalTimeHHMM(startedAt);
+          const endTime =
+            localMatch?.end_time || resolveOptionalTimeHHMM(finishedAt);
 
           return {
             id: item.id,
             server_id: item.id,
             machine_id: item.machine_id,
-            machine_name: machine?.name || localMatch?.machine_name || 'Retroescavadeira',
+            machine_name:
+              machine?.name || localMatch?.machine_name || 'Retroescavadeira',
             operator_id: item.operator_id,
-            operator_name: profile?.full_name || localMatch?.operator_name || 'Operador',
+            operator_name:
+              profile?.full_name || localMatch?.operator_name || 'Operador',
             client_name: item.client_name,
             client_phone: item.client_phone || localMatch?.client_phone || null,
             service_date: item.service_date,
@@ -195,7 +238,9 @@ export async function fetchAdminWorkLogs(filterStatus: WorkLogFilter = 'todos'):
             total_hours: totalHours,
             observations: item.observations,
             status: item.status || 'pendente',
-            payment_status: (item.payment_status || localMatch?.payment_status || 'a_receber') as PaymentStatus,
+            payment_status: (item.payment_status ||
+              localMatch?.payment_status ||
+              'a_receber') as PaymentStatus,
             started_at: startedAt,
             finished_at: finishedAt,
             start_time: startTime,
@@ -207,7 +252,10 @@ export async function fetchAdminWorkLogs(filterStatus: WorkLogFilter = 'todos'):
         });
       }
     } catch (err) {
-      console.warn('[AdminService] Falha ao consultar Supabase, lendo do banco Dexie local:', err);
+      console.warn(
+        '[AdminService] Falha ao consultar Supabase, lendo do banco Dexie local:',
+        err
+      );
     }
   }
 
@@ -224,10 +272,15 @@ export async function fetchAdminWorkLogs(filterStatus: WorkLogFilter = 'todos'):
       const startH = Number(log.start_hours ?? 0);
       const endH = Number(log.end_hours ?? 0);
       const rawHours = Number(log.total_hours ?? 0);
-      const totalHours = rawHours > 0 ? rawHours : Math.max(0, Number((endH - startH).toFixed(1)));
-      const totalAmount = log.total_amount !== undefined && log.total_amount > 0 ? log.total_amount : (totalHours * rate);
+      const totalHours =
+        rawHours > 0 ? rawHours : calculateTotalHours(startH, endH);
+      const totalAmount =
+        log.total_amount !== undefined && log.total_amount > 0
+          ? log.total_amount
+          : totalHours * rate;
       const startedAt = log.started_at || log.created_at;
-      const finishedAt = log.finished_at || (status !== 'em_andamento' ? log.created_at : undefined);
+      const finishedAt =
+        log.finished_at || (status !== 'em_andamento' ? log.created_at : undefined);
 
       return {
         id: log.id || log.server_id || `temp-${Math.random()}`,
@@ -247,8 +300,8 @@ export async function fetchAdminWorkLogs(filterStatus: WorkLogFilter = 'todos'):
         payment_status: (log.payment_status || 'a_receber') as PaymentStatus,
         started_at: startedAt,
         finished_at: finishedAt,
-        start_time: log.start_time || resolveTimeHHMM(startedAt),
-        end_time: log.end_time || resolveTimeHHMM(finishedAt),
+        start_time: log.start_time || resolveOptionalTimeHHMM(startedAt),
+        end_time: log.end_time || resolveOptionalTimeHHMM(finishedAt),
         hourly_rate: rate,
         total_amount: totalAmount,
         created_at: log.created_at,
@@ -261,14 +314,16 @@ export async function fetchAdminWorkLogs(filterStatus: WorkLogFilter = 'todos'):
   }
 
   // Ordena por data decrescente
-  resultLogs.sort((a, b) => new Date(b.service_date).getTime() - new Date(a.service_date).getTime());
+  resultLogs.sort(
+    (a, b) => new Date(b.service_date).getTime() - new Date(a.service_date).getTime()
+  );
 
   return resultLogs;
 }
 
 /**
  * 2.1. Atualiza os dados de um apontamento de serviço pelo Administrador antes ou depois de aprovar.
- * Salva tanto no cache local do Dexie quanto na tabela `work_logs` do Supabase.
+ * Salva na tabela `work_logs` do Supabase e no cache local do Dexie.
  */
 export async function updateAdminWorkLog(
   workLogId: string | number,
@@ -282,16 +337,17 @@ export async function updateAdminWorkLog(
       return { success: false, error: 'Horímetro inicial inválido.' };
     }
     if (isNaN(updates.end_hours) || updates.end_hours < updates.start_hours) {
-      return { success: false, error: 'O horímetro final deve ser maior ou igual ao inicial.' };
+      return {
+        success: false,
+        error: 'O horímetro final deve ser maior ou igual ao inicial.',
+      };
     }
 
     const now = new Date().toISOString();
-    const online = typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
+    const online =
+      typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
 
-    const totalHours = Math.max(
-      0,
-      Number((Number(updates.end_hours) - Number(updates.start_hours)).toFixed(1))
-    );
+    const totalHours = calculateTotalHours(updates.start_hours, updates.end_hours);
     const rate = Number(updates.hourly_rate) || 0;
     const totalAmount = Number((totalHours * rate).toFixed(2));
     const cleanPhone = updates.client_phone?.trim() || null;
@@ -306,29 +362,34 @@ export async function updateAdminWorkLog(
       }
     }
 
-    // 1. Localiza e atualiza no Dexie local
-    let existing: any = null;
-    if (typeof workLogId === 'number') {
-      existing = await db.offline_work_logs.get(workLogId);
-    } else {
-      const numericId = parseInt(workLogId, 10);
-      if (!isNaN(numericId) && String(numericId) === String(workLogId)) {
-        existing = await db.offline_work_logs.get(numericId);
-      }
-      if (!existing) {
-        try {
-          existing = await db.offline_work_logs.where('server_id').equals(String(workLogId)).first();
-        } catch {
-          const allLocal = await db.offline_work_logs.toArray();
-          existing = allLocal.find((l) => l.server_id === workLogId || String(l.id) === String(workLogId));
-        }
-      }
-      if (!existing) {
-        const allLocal = await db.offline_work_logs.toArray();
-        existing = allLocal.find((l) => l.server_id === workLogId || String(l.id) === String(workLogId));
+    const existing = await findLocalWorkLog(workLogId);
+    const targetServerId = existing?.server_id || String(workLogId);
+
+    // 1. Se online, atualiza na tabela `work_logs` do Supabase e exige confirmação
+    if (online) {
+      const { error } = await supabase
+        .from('work_logs')
+        .update({
+          client_name: updates.client_name.trim(),
+          client_phone: cleanPhone,
+          service_date: updates.service_date,
+          machine_id: updates.machine_id,
+          start_hours: Number(updates.start_hours),
+          end_hours: Number(updates.end_hours),
+          observations: cleanObs,
+          ...(updates.payment_status ? { payment_status: updates.payment_status } : {}),
+          updated_at: now,
+        })
+        .eq('id', targetServerId);
+
+      if (error) {
+        console.error('[Supabase updateAdminWorkLog Error]:', error);
+        toast.error(error.message);
+        throw new Error(error.message);
       }
     }
 
+    // 2. Atualiza no cache local do Dexie
     if (existing?.id) {
       await db.offline_work_logs.update(existing.id, {
         client_name: updates.client_name.trim(),
@@ -346,33 +407,10 @@ export async function updateAdminWorkLog(
       });
     }
 
-    // 2. Se online, atualiza na tabela `work_logs` do Supabase
-    if (online) {
-      const serverId = existing?.server_id || String(workLogId);
-      const { error } = await supabase
-        .from('work_logs')
-        .update({
-          client_name: updates.client_name.trim(),
-          client_phone: cleanPhone,
-          service_date: updates.service_date,
-          machine_id: updates.machine_id,
-          start_hours: Number(updates.start_hours),
-          end_hours: Number(updates.end_hours),
-          observations: cleanObs,
-          ...(updates.payment_status ? { payment_status: updates.payment_status } : {}),
-          updated_at: now,
-        })
-        .eq('id', serverId);
-
-      if (error) {
-        console.error('[Supabase updateAdminWorkLog Error]:', error);
-        return { success: false, error: error.message };
-      }
-    }
-
     return { success: true };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Falha ao atualizar apontamento';
+    const msg =
+      err instanceof Error ? err.message : 'Falha ao atualizar apontamento';
     console.error('[AdminService] Erro em updateAdminWorkLog:', msg);
     return { success: false, error: msg };
   }
@@ -388,56 +426,40 @@ export async function updateWorkLogPaymentStatus(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const now = new Date().toISOString();
-    const online = typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
+    const online =
+      typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
 
-    // 1. Localiza e atualiza no Dexie local
-    let existing: any = null;
-    if (typeof workLogId === 'number') {
-      existing = await db.offline_work_logs.get(workLogId);
-    } else {
-      const numericId = parseInt(workLogId, 10);
-      if (!isNaN(numericId) && String(numericId) === String(workLogId)) {
-        existing = await db.offline_work_logs.get(numericId);
-      }
-      if (!existing) {
-        try {
-          existing = await db.offline_work_logs.where('server_id').equals(String(workLogId)).first();
-        } catch {
-          const allLocal = await db.offline_work_logs.toArray();
-          existing = allLocal.find((l) => l.server_id === workLogId || String(l.id) === String(workLogId));
-        }
-      }
-      if (!existing) {
-        const allLocal = await db.offline_work_logs.toArray();
-        existing = allLocal.find((l) => l.server_id === workLogId || String(l.id) === String(workLogId));
-      }
-    }
+    const existing = await findLocalWorkLog(workLogId);
+    const targetServerId = existing?.server_id || String(workLogId);
 
-    if (existing?.id) {
-      await db.offline_work_logs.update(existing.id, {
-        payment_status: paymentStatus,
-      });
-    }
-
-    // 2. Se online, atualiza `payment_status` na tabela `work_logs` do Supabase
+    // 1. Se online, atualiza `payment_status` na tabela `work_logs` do Supabase
     if (online) {
-      const serverId = existing?.server_id || String(workLogId);
       const { error } = await supabase
         .from('work_logs')
         .update({
           payment_status: paymentStatus,
           updated_at: now,
         })
-        .eq('id', serverId);
+        .eq('id', targetServerId);
 
       if (error) {
-        console.warn('[Supabase updateWorkLogPaymentStatus Warning]:', error.message);
+        console.error('[Supabase updateWorkLogPaymentStatus Error]:', error);
+        toast.error(error.message);
+        throw new Error(error.message);
       }
+    }
+
+    // 2. Atualiza no Dexie local
+    if (existing?.id) {
+      await db.offline_work_logs.update(existing.id, {
+        payment_status: paymentStatus,
+      });
     }
 
     return { success: true };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Falha ao atualizar status de pagamento';
+    const msg =
+      err instanceof Error ? err.message : 'Falha ao atualizar status de pagamento';
     console.error('[AdminService] Erro em updateWorkLogPaymentStatus:', msg);
     return { success: false, error: msg };
   }
@@ -453,61 +475,92 @@ export async function approveWorkLog(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const now = new Date().toISOString();
-    const online = typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
+    const online =
+      typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
 
-    // 1. Atualiza no Dexie local
-    let targetMachineId: string | null = null;
-    let targetEndHours: number | null = null;
-    let targetClientName: string = 'Cliente';
+    const existing = await findLocalWorkLog(workLogId);
+    const targetServerId = existing?.server_id || String(workLogId);
+
+    let targetMachineId: string | null = existing?.machine_id || null;
+    let targetEndHours: number | null =
+      existing?.end_hours !== undefined ? Number(existing.end_hours) : null;
+    let targetClientName: string = existing?.client_name || 'Cliente';
     let targetHours: number = 0;
 
-    let existing: any = null;
-
-    if (typeof workLogId === 'number') {
-      existing = await db.offline_work_logs.get(workLogId);
+    if (existing) {
+      const rawHours = Number(existing.total_hours ?? 0);
+      const diffHours = calculateTotalHours(existing.start_hours, existing.end_hours);
+      targetHours = rawHours > 0 ? rawHours : diffHours;
     } else {
-      const numericId = parseInt(workLogId, 10);
-      if (!isNaN(numericId)) {
-        existing = await db.offline_work_logs.get(numericId);
+      targetHours =
+        appliedHourlyRate > 0 ? Number((totalAmount / appliedHourlyRate).toFixed(1)) : 0;
+    }
+
+    const hourly_rate = Number(appliedHourlyRate) || 0;
+    const total_amount =
+      totalAmount > 0 ? totalAmount : Number((targetHours * hourly_rate).toFixed(2));
+    const payment_status: PaymentStatus =
+      (existing?.payment_status as PaymentStatus) || 'a_receber';
+
+    // 1. Se online, envia aprovação completa e lançamento financeiro ao Supabase usando o UUID oficial
+    if (online) {
+      const { error: workLogError } = await supabase
+        .from('work_logs')
+        .update({
+          status: 'aprovado',
+          hourly_rate,
+          total_amount,
+          payment_status,
+          updated_at: now,
+        })
+        .eq('id', targetServerId);
+
+      if (workLogError) {
+        console.error('[Supabase approveWorkLog work_logs Error]:', workLogError);
+        toast.error(workLogError.message);
+        throw new Error(workLogError.message);
       }
-      if (!existing) {
-        try {
-          existing = await db.offline_work_logs.where('server_id').equals(workLogId).first();
-        } catch {
-          // Fallback seguro caso o índice ainda esteja a migrar
-          const allLocal = await db.offline_work_logs.toArray();
-          existing = allLocal.find((l) => l.server_id === workLogId || String(l.id) === workLogId);
+
+      // Cria lançamento no financeiro com o UUID oficial (targetServerId)
+      const { error: finError } = await supabase.from('financial_entries').insert({
+        work_log_id: targetServerId,
+        client_name: targetClientName,
+        amount: total_amount,
+        service_date: now.split('T')[0],
+        type: 'receita',
+        status: payment_status === 'pago' ? 'pago' : 'pendente',
+      });
+
+      if (finError) {
+        console.error('[Supabase approveWorkLog financial_entries Error]:', finError);
+        toast.error(finError.message);
+        throw new Error(finError.message);
+      }
+
+      // Atualiza horômetro no Supabase
+      if (targetMachineId && targetEndHours) {
+        const { error: machineError } = await supabase
+          .from('machines')
+          .update({ current_hours: targetEndHours, updated_at: now })
+          .eq('id', targetMachineId);
+
+        if (machineError) {
+          console.error('[Supabase approveWorkLog machines Error]:', machineError);
+          toast.error(machineError.message);
+          throw new Error(machineError.message);
         }
-      }
-      if (!existing) {
-        const allLocal = await db.offline_work_logs.toArray();
-        existing = allLocal.find((l) => l.server_id === workLogId || String(l.id) === workLogId);
       }
     }
 
-    if (existing) {
-      targetMachineId = existing.machine_id;
-      targetEndHours = existing.end_hours;
-      if (existing.client_name) targetClientName = existing.client_name;
-
-      // Certifica-se de que o cálculo das horas trabalhadas utilize (end_hours - start_hours) se total_hours vier vazio ou 0
-      const rawHours = Number(existing.total_hours ?? 0);
-      const diffHours = Math.max(0, Number((Number(existing.end_hours) - Number(existing.start_hours)).toFixed(1)));
-      targetHours = rawHours > 0 ? rawHours : diffHours;
-
-      const calculatedFinalAmount =
-        totalAmount > 0 ? totalAmount : Number((targetHours * appliedHourlyRate).toFixed(2));
-
-      if (existing.id) {
-        await db.offline_work_logs.update(existing.id, {
-          status: 'aprovado',
-          hourly_rate: appliedHourlyRate,
-          total_hours: targetHours,
-          total_amount: calculatedFinalAmount,
-        });
-      }
-    } else {
-      targetHours = appliedHourlyRate > 0 ? Number((totalAmount / appliedHourlyRate).toFixed(1)) : 0;
+    // 2. Atualiza no Dexie local
+    if (existing?.id) {
+      await db.offline_work_logs.update(existing.id, {
+        status: 'aprovado',
+        hourly_rate,
+        total_hours: targetHours,
+        total_amount,
+        payment_status,
+      });
     }
 
     // Atualiza horômetro da máquina localmente
@@ -515,48 +568,10 @@ export async function approveWorkLog(
       await db.cached_machines.update(targetMachineId, { current_hours: targetEndHours });
     }
 
-    // 2. Se online, envia aprovação e lançamento financeiro ao Supabase
-    if (online) {
-      const serverId = String(workLogId);
-
-      // Atualiza work_logs
-      await supabase
-        .from('work_logs')
-        .update({
-          status: 'aprovado',
-          updated_at: now,
-        })
-        .eq('id', serverId);
-
-      const finalAmountToSend =
-        totalAmount > 0 ? totalAmount : Number((targetHours * appliedHourlyRate).toFixed(2));
-
-      // Cria lançamento no financeiro (estritamente colunas suportadas pela tabela)
-      const { error: finError } = await supabase.from('financial_entries').insert({
-        work_log_id: serverId,
-        client_name: targetClientName,
-        amount: finalAmountToSend,
-        service_date: now.split('T')[0],
-        type: 'receita',
-        status: 'pendente',
-      });
-
-      if (finError) {
-        console.error('[Supabase approveWorkLog financial_entries Error]:', finError);
-      }
-
-      // Atualiza horômetro no Supabase
-      if (targetMachineId && targetEndHours) {
-        await supabase
-          .from('machines')
-          .update({ current_hours: targetEndHours, updated_at: now })
-          .eq('id', targetMachineId);
-      }
-    }
-
     return { success: true };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Falha ao aprovar apontamento';
+    const msg =
+      err instanceof Error ? err.message : 'Falha ao aprovar apontamento';
     console.error('[AdminService] Erro ao aprovar:', msg);
     return { success: false, error: msg };
   }
@@ -571,62 +586,46 @@ export async function rejectWorkLog(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const now = new Date().toISOString();
-    const online = typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
+    const online =
+      typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
 
-    // 1. Atualiza no Dexie local
-    let existing: any = null;
+    const existing = await findLocalWorkLog(workLogId);
+    const targetServerId = existing?.server_id || String(workLogId);
+    const updatedObservations = reason
+      ? `${existing?.observations || ''} [Rejeitado: ${reason}]`.trim()
+      : existing?.observations;
 
-    if (typeof workLogId === 'number') {
-      existing = await db.offline_work_logs.get(workLogId);
-      if (existing) {
-        await db.offline_work_logs.update(workLogId, {
-          status: 'rejeitado',
-          observations: reason
-            ? `${existing?.observations || ''} [Rejeitado: ${reason}]`.trim()
-            : existing?.observations,
-        });
-      }
-    } else {
-      const numericId = parseInt(workLogId, 10);
-      if (!isNaN(numericId)) {
-        existing = await db.offline_work_logs.get(numericId);
-      }
-      if (!existing) {
-        try {
-          existing = await db.offline_work_logs.where('server_id').equals(workLogId).first();
-        } catch {
-          const allLocal = await db.offline_work_logs.toArray();
-          existing = allLocal.find((l) => l.server_id === workLogId || String(l.id) === workLogId);
-        }
-      }
-      if (!existing) {
-        const allLocal = await db.offline_work_logs.toArray();
-        existing = allLocal.find((l) => l.server_id === workLogId || String(l.id) === workLogId);
-      }
-      if (existing && existing.id) {
-        await db.offline_work_logs.update(existing.id, {
-          status: 'rejeitado',
-          observations: reason
-            ? `${existing?.observations || ''} [Rejeitado: ${reason}]`.trim()
-            : existing?.observations,
-        });
-      }
-    }
-
-    // 2. Se online, atualiza no Supabase
+    // 1. Se online, atualiza no Supabase usando o UUID oficial
     if (online) {
-      await supabase
+      const { error } = await supabase
         .from('work_logs')
         .update({
           status: 'rejeitado',
+          ...(reason ? { observations: updatedObservations } : {}),
           updated_at: now,
         })
-        .eq('id', String(workLogId));
+        .eq('id', targetServerId);
+
+      if (error) {
+        console.error('[Supabase rejectWorkLog Error]:', error);
+        toast.error(error.message);
+        throw new Error(error.message);
+      }
+    }
+
+    // 2. Atualiza no Dexie local
+    if (existing?.id) {
+      await db.offline_work_logs.update(existing.id, {
+        status: 'rejeitado',
+        observations: updatedObservations,
+      });
     }
 
     return { success: true };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Falha ao rejeitar apontamento';
+    const msg =
+      err instanceof Error ? err.message : 'Falha ao rejeitar apontamento';
+    console.error('[AdminService] Erro ao rejeitar:', msg);
     return { success: false, error: msg };
   }
 }
@@ -639,53 +638,64 @@ export async function deleteWorkLog(
   workLogId: string | number
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const online = typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
+    const online =
+      typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
 
-    // 1. Remove do Dexie local
-    if (typeof workLogId === 'number') {
+    // Localiza o registro antes de remover do Dexie para preservar o server_id oficial
+    const existing = await findLocalWorkLog(workLogId);
+    const targetServerId = existing?.server_id || String(workLogId);
+
+    // 1. Se online, remove do Supabase usando o UUID oficial
+    if (online) {
+      const { error: finError } = await supabase
+        .from('financial_entries')
+        .delete()
+        .eq('work_log_id', targetServerId);
+
+      if (finError) {
+        console.error('[Supabase deleteWorkLog financial_entries Error]:', finError);
+        toast.error(finError.message);
+        throw new Error(finError.message);
+      }
+
+      const { error } = await supabase
+        .from('work_logs')
+        .delete()
+        .eq('id', targetServerId);
+
+      if (error) {
+        console.error('[Supabase deleteWorkLog Error]:', error);
+        toast.error(error.message);
+        throw new Error(error.message);
+      }
+    }
+
+    // 2. Remove do Dexie local
+    if (existing?.id) {
+      await db.offline_work_logs.delete(existing.id);
+    } else if (typeof workLogId === 'number') {
       await db.offline_work_logs.delete(workLogId);
     } else {
-      const numericId = parseInt(workLogId, 10);
+      const numericId = parseInt(String(workLogId), 10);
       if (!isNaN(numericId)) {
         await db.offline_work_logs.delete(numericId);
       }
       try {
-        const matched = await db.offline_work_logs.where('server_id').equals(workLogId).toArray();
+        const matched = await db.offline_work_logs
+          .where('server_id')
+          .equals(targetServerId)
+          .toArray();
         for (const item of matched) {
           if (item.id) await db.offline_work_logs.delete(item.id);
         }
       } catch {
         const allLocal = await db.offline_work_logs.toArray();
-        const matched = allLocal.filter((l) => l.server_id === workLogId || String(l.id) === workLogId);
+        const matched = allLocal.filter(
+          (l) => l.server_id === targetServerId || String(l.id) === String(workLogId)
+        );
         for (const item of matched) {
           if (item.id) await db.offline_work_logs.delete(item.id);
         }
-      }
-    }
-
-    // 2. Se online, remove do Supabase
-    if (online) {
-      const serverId = String(workLogId);
-
-      // Remove lançamentos financeiros vinculados (se houver) para evitar violação de integridade referencial
-      try {
-        await supabase
-          .from('financial_entries')
-          .delete()
-          .eq('work_log_id', serverId);
-      } catch (finErr) {
-        console.warn('[Supabase deleteWorkLog financial_entries warning]:', finErr);
-      }
-
-      // Remove o apontamento da tabela work_logs
-      const { error } = await supabase
-        .from('work_logs')
-        .delete()
-        .eq('id', serverId);
-
-      if (error) {
-        console.error('[Supabase deleteWorkLog Error]:', error);
-        throw error;
       }
     }
 
@@ -701,7 +711,8 @@ export async function deleteWorkLog(
  * 5. CRUD de Máquinas: listagem completa
  */
 export async function fetchMachines(): Promise<Machine[]> {
-  const online = typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
+  const online =
+    typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
 
   if (online) {
     try {
@@ -715,8 +726,8 @@ export async function fetchMachines(): Promise<Machine[]> {
         await db.cached_machines.bulkPut(data as Machine[]);
         return data as Machine[];
       }
-    } catch {
-      // Ignora erro e recorre ao Dexie
+    } catch (err) {
+      console.warn('[AdminService] Falha ao buscar máquinas no Supabase, usando cache local:', err);
     }
   }
 
@@ -732,7 +743,8 @@ export async function saveMachine(
 ): Promise<{ success: boolean; machine?: Machine; error?: string }> {
   try {
     const now = new Date().toISOString();
-    const online = typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
+    const online =
+      typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
 
     const payload = {
       name: String(machineData.name).trim(),
@@ -756,6 +768,7 @@ export async function saveMachine(
 
         if (error) {
           console.error('[Supabase saveMachine Error]:', error);
+          toast.error(error.message);
           return { success: false, error: error.message };
         }
 
@@ -775,22 +788,26 @@ export async function saveMachine(
 
         if (error) {
           console.error('[Supabase saveMachine Error]:', error);
+          toast.error(error.message);
           return { success: false, error: error.message };
         }
 
         if (!data) {
-          return { success: false, error: 'Nenhum dado retornado ao inserir máquina no Supabase.' };
+          return {
+            success: false,
+            error: 'Nenhum dado retornado ao inserir máquina no Supabase.',
+          };
         }
 
         savedMachine = data as Machine;
       }
     } else {
-      // Modo Offline: gera id único local compatível
+      // Modo Offline: gera UUID compatível
       const localId =
         machineData.id ||
         (typeof crypto !== 'undefined' && crypto.randomUUID
           ? crypto.randomUUID()
-          : `mach-${Date.now()}`);
+          : '00000000-0000-4000-8000-' + String(Date.now()).padStart(12, '0'));
 
       savedMachine = {
         id: localId,

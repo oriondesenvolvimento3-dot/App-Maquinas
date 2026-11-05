@@ -2,10 +2,18 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import {
   getPendingWorkLogs,
   markWorkLogAsSynced,
+  getPendingScheduledServices,
+  markScheduledServiceAsSynced,
   setCachedMachines,
   setCachedProfiles,
 } from '../lib/dexieDb';
-import type { Machine, Profile, OfflineWorkLog, Database } from '../types/database';
+import type {
+  Machine,
+  Profile,
+  OfflineWorkLog,
+  ScheduledService,
+  Database,
+} from '../types/database';
 
 export interface SyncResult {
   syncedCount: number;
@@ -20,14 +28,55 @@ export interface CacheResult {
 }
 
 export const SYNC_COMPLETE_EVENT = 'retroscave:sync-complete';
+export const SYNC_ERROR_EVENT = 'retroscave:sync-error';
 
 export interface SyncCompleteEventDetail {
   syncedCount: number;
   message: string;
 }
 
+export interface SyncErrorEventDetail {
+  message: string;
+}
+
 type WorkLogInsert = Database['public']['Tables']['work_logs']['Insert'];
 type WorkLogUpdate = Database['public']['Tables']['work_logs']['Update'];
+type ScheduledServiceInsert = Database['public']['Tables']['scheduled_services']['Insert'];
+type ScheduledServiceUpdate = Database['public']['Tables']['scheduled_services']['Update'];
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Verifica se uma string é um UUID válido do Supabase
+ */
+export function isValidUuid(val?: string | null): boolean {
+  if (!val || typeof val !== 'string') return false;
+  return UUID_REGEX.test(val.trim());
+}
+
+/**
+ * Utilitário de toast compatível para exibição imediata de erros e sucessos de sincronização
+ */
+export const toast = {
+  error(message: string): void {
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+      window.dispatchEvent(
+        new CustomEvent<SyncErrorEventDetail>(SYNC_ERROR_EVENT, {
+          detail: { message },
+        })
+      );
+    }
+  },
+  success(message: string): void {
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+      window.dispatchEvent(
+        new CustomEvent<SyncCompleteEventDetail>(SYNC_COMPLETE_EVENT, {
+          detail: { syncedCount: 1, message },
+        })
+      );
+    }
+  },
+};
 
 let isSyncInProgress = false;
 let autoSyncInitialized = false;
@@ -81,6 +130,105 @@ export function sanitizeWorkLogForSupabase(log: Partial<OfflineWorkLog> & Record
 }
 
 /**
+ * Consolida observações no campo `notes` suportado pela tabela `scheduled_services` do Supabase
+ */
+export function buildScheduleNotesForSupabase(
+  sched: Partial<ScheduledService> & Record<string, any>
+): string | null {
+  if (sched.notes && String(sched.notes).trim().length > 0) {
+    return String(sched.notes).trim();
+  }
+  const parts: string[] = [];
+  if (sched.agreement_details && String(sched.agreement_details).trim()) {
+    parts.push(String(sched.agreement_details).trim());
+  }
+  if (sched.observations && String(sched.observations).trim()) {
+    parts.push(String(sched.observations).trim());
+  }
+  return parts.length > 0 ? parts.join(' | ') : null;
+}
+
+/**
+ * Extrai estimativa numérica de horas caso tenha sido informada
+ */
+export function resolveEstimatedHours(
+  sched: Partial<ScheduledService> & Record<string, any>
+): number | null {
+  if (
+    sched.estimated_hours !== undefined &&
+    sched.estimated_hours !== null &&
+    String(sched.estimated_hours).trim() !== '' &&
+    !isNaN(Number(sched.estimated_hours))
+  ) {
+    return Number(sched.estimated_hours);
+  }
+  if (sched.agreement_details) {
+    const match = String(sched.agreement_details).match(/(\d+(?:[.,]\d+)?)\s*h/i);
+    if (match) {
+      const parsed = parseFloat(match[1].replace(',', '.'));
+      if (!isNaN(parsed)) return parsed;
+    }
+  }
+  return null;
+}
+
+/**
+ * Extrai valor numérico combinado (`agreed_rate`) caso tenha sido informado
+ */
+export function resolveAgreedRate(
+  sched: Partial<ScheduledService> & Record<string, any>
+): number | null {
+  if (
+    sched.agreed_rate !== undefined &&
+    sched.agreed_rate !== null &&
+    String(sched.agreed_rate).trim() !== '' &&
+    !isNaN(Number(sched.agreed_rate))
+  ) {
+    return Number(sched.agreed_rate);
+  }
+  if (
+    sched.agreed_amount !== undefined &&
+    sched.agreed_amount !== null &&
+    String(sched.agreed_amount).trim() !== '' &&
+    !isNaN(Number(sched.agreed_amount))
+  ) {
+    return Number(sched.agreed_amount);
+  }
+  return null;
+}
+
+/**
+ * Remove campos internos locais do Dexie (como `id` numérico, `sync_status`, `synced`, `machine_name`, `operator_name`)
+ * e valida as chaves estrangeiras (`machine_id` e `operator_id` como UUIDs válidos ou `null`)
+ * antes de enviar para a tabela `scheduled_services` do Supabase.
+ */
+export function sanitizeScheduledServiceForSupabase(
+  sched: Partial<ScheduledService> & Record<string, any>
+): ScheduledServiceInsert {
+  const scheduledPeriod = (sched.scheduled_period || sched.period || 'integral') as
+    | 'manha'
+    | 'tarde'
+    | 'integral';
+
+  const payload: ScheduledServiceInsert = {
+    client_name: sched.client_name ? String(sched.client_name).trim() : '',
+    client_phone: sched.client_phone ? String(sched.client_phone).trim() : null,
+    service_type: sched.service_type ? String(sched.service_type).trim() : 'Terraplanagem',
+    scheduled_date: sched.scheduled_date!,
+    scheduled_period: scheduledPeriod,
+    machine_id: isValidUuid(sched.machine_id) ? String(sched.machine_id).trim() : null,
+    operator_id: isValidUuid(sched.operator_id) ? String(sched.operator_id).trim() : null,
+    location: sched.location ? String(sched.location).trim() : null,
+    estimated_hours: resolveEstimatedHours(sched),
+    agreed_rate: resolveAgreedRate(sched),
+    status: sched.status || 'agendado',
+    notes: buildScheduleNotesForSupabase(sched),
+  };
+
+  return payload;
+}
+
+/**
  * Sincroniza todos os registros de serviços salvos localmente no Dexie (IndexedDB)
  * que estejam com `synced: false` (ou `sync_status: 'pending'`) para a tabela remota `work_logs` do Supabase.
  *
@@ -95,13 +243,18 @@ export async function syncPendingServices(): Promise<number> {
 
   try {
     const pendingLogs = await getPendingWorkLogs();
+    const pendingSchedules = await getPendingScheduledServices();
 
-    if (!pendingLogs || pendingLogs.length === 0) {
+    if (
+      (!pendingLogs || pendingLogs.length === 0) &&
+      (!pendingSchedules || pendingSchedules.length === 0)
+    ) {
       return 0;
     }
 
     let successCount = 0;
 
+    // 1. Sincroniza apontamentos de horas (work_logs)
     for (const log of pendingLogs) {
       try {
         if (!log.id) continue;
@@ -157,6 +310,56 @@ export async function syncPendingServices(): Promise<number> {
       }
     }
 
+    // 2. Sincroniza agendamentos da Agenda (scheduled_services)
+    for (const sched of pendingSchedules) {
+      try {
+        if (sched.id === undefined || sched.id === null) continue;
+        const localNumericId = Number(sched.id);
+
+        if (sched.server_id && isValidUuid(sched.server_id)) {
+          const updatePayload: ScheduledServiceUpdate = sanitizeScheduledServiceForSupabase(sched);
+
+          const { error } = await supabase
+            .from('scheduled_services')
+            .update(updatePayload)
+            .eq('id', sched.server_id);
+
+          if (error) {
+            console.error('[AgendaSync Error]', error);
+            continue;
+          }
+
+          if (!isNaN(localNumericId)) {
+            await markScheduledServiceAsSynced(localNumericId, sched.server_id);
+          }
+          successCount++;
+        } else {
+          const insertPayload = sanitizeScheduledServiceForSupabase(sched);
+
+          const { data, error } = await supabase
+            .from('scheduled_services')
+            .insert(insertPayload)
+            .select('id')
+            .single();
+
+          if (error) {
+            console.error('[AgendaSync Error]', error);
+            continue;
+          }
+
+          if (data?.id) {
+            const remoteId = String(data.id);
+            if (!isNaN(localNumericId)) {
+              await markScheduledServiceAsSynced(localNumericId, remoteId);
+            }
+            successCount++;
+          }
+        }
+      } catch (err) {
+        console.error(`[AgendaSync Error] Falha inesperada ao sincronizar agendamento #${sched.id}:`, err);
+      }
+    }
+
     if (successCount > 0) {
       console.info(`[SyncService] Sincronização concluída: ${successCount} registro(s) sincronizados com sucesso.`);
       notifySyncComplete(successCount);
@@ -186,8 +389,11 @@ export async function checkAndSyncPendingQueue(): Promise<number> {
     return 0;
   }
 
-  const pending = await getPendingWorkLogs();
-  if (pending.length > 0) {
+  const [pendingLogs, pendingSchedules] = await Promise.all([
+    getPendingWorkLogs(),
+    getPendingScheduledServices(),
+  ]);
+  if (pendingLogs.length > 0 || pendingSchedules.length > 0) {
     return await syncPendingServices();
   }
   return 0;

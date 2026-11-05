@@ -12,6 +12,13 @@ import {
 import type { Machine, PaymentStatus } from '../../types/database';
 import { generateSingleServiceReceiptPdf } from '../../utils/pdfGenerator';
 import {
+  formatDateBr,
+  formatTimeHHMM,
+  formatCurrencyBRL,
+  applyPhoneMask,
+  calculateTotalHours,
+} from '../../utils/formatters';
+import {
   ArrowLeft,
   Truck,
   User,
@@ -63,15 +70,6 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState<boolean>(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // Máscara de telefone brasileiro: (00) 00000-0000
-  const formatPhoneMask = (val: string) => {
-    const digits = val.replace(/\D/g, '').slice(0, 11);
-    if (digits.length <= 2) return digits ? `(${digits}` : '';
-    if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
-    if (digits.length <= 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
-    return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7, 11)}`;
-  };
-
   useEffect(() => {
     fetchMachines().then(setMachines);
 
@@ -80,7 +78,7 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
       if (found) {
         setService(found);
         setClientNameInput(found.client_name || '');
-        setClientPhoneInput(found.client_phone ? formatPhoneMask(found.client_phone) : '');
+        setClientPhoneInput(found.client_phone ? applyPhoneMask(found.client_phone) : '');
         setServiceDateInput((found.service_date || '').split('T')[0]);
         setMachineIdInput(found.machine_id || '');
         setMachineNameInput(found.machine_name || '');
@@ -96,7 +94,7 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
   const numStart = parseFloat(startHoursInput.replace(',', '.')) || 0;
   const numEnd = parseFloat(endHoursInput.replace(',', '.')) || 0;
   const numericRate = parseFloat(hourlyRateInput.replace(',', '.')) || 0;
-  const calculatedHours = Math.max(0, Number((numEnd - numStart).toFixed(1)));
+  const calculatedHours = calculateTotalHours(numStart, numEnd);
   const calculatedTotal = Number((calculatedHours * numericRate).toFixed(2));
 
   const handleMachineSelect = (newMachineId: string) => {
@@ -314,9 +312,9 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
    */
   const handleSendWhatsApp = () => {
     if (!service) return;
-    const dateFormatted = formatDate(serviceDateInput || service.service_date);
-    const rateFmt = `R$ ${numericRate.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
-    const totalFmt = `R$ ${calculatedTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+    const dateFormatted = formatDateBr(serviceDateInput || service.service_date);
+    const rateFmt = formatCurrencyBRL(numericRate);
+    const totalFmt = formatCurrencyBRL(calculatedTotal);
     const currentClient = clientNameInput.trim() || service.client_name;
     const currentMachine = machineNameInput || service.machine_name;
     const currentObs = observationsInput.trim();
@@ -406,34 +404,6 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
     }
   };
 
-  const formatDate = (dateStr?: string) => {
-    if (!dateStr) return '';
-    try {
-      const [year, month, day] = dateStr.split('T')[0].split('-');
-      return `${day}/${month}/${year}`;
-    } catch {
-      return dateStr;
-    }
-  };
-
-  // Formata janela de horário real do dia (ex: 08:15 - 11:45)
-  const formatTimeSlot = (timeVal?: string, isoVal?: string) => {
-    if (timeVal && /^\d{2}:\d{2}/.test(timeVal.trim())) {
-      return timeVal.trim().slice(0, 5);
-    }
-    if (isoVal) {
-      try {
-        const d = new Date(isoVal);
-        if (!isNaN(d.getTime())) {
-          return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-        }
-      } catch {
-        // ignore
-      }
-    }
-    return '--:--';
-  };
-
   if (!service) {
     return (
       <div className="w-full max-w-md mx-auto min-h-screen bg-[#F8FAFC] flex items-center justify-center">
@@ -442,11 +412,11 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
     );
   }
 
-  const startClock = formatTimeSlot(service.start_time, service.started_at || service.created_at);
+  const startClock = formatTimeHHMM(service.start_time, service.started_at || service.created_at);
   const endClock =
     service.status === 'em_andamento'
       ? 'Em andamento'
-      : formatTimeSlot(service.end_time, service.finished_at);
+      : formatTimeHHMM(service.end_time, service.finished_at);
 
   // Garante que a máquina atual do serviço apareça nas opções mesmo se não estiver no cache ainda
   const machineOptions: Array<{ id: string; name: string }> =
@@ -685,7 +655,7 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
                 id="admin-edit-client-phone"
                 type="tel"
                 value={clientPhoneInput}
-                onChange={(e) => setClientPhoneInput(formatPhoneMask(e.target.value))}
+                onChange={(e) => setClientPhoneInput(applyPhoneMask(e.target.value))}
                 placeholder="(00) 00000-0000"
                 className="w-full h-11 px-3 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-sm font-bold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
               />
@@ -795,7 +765,7 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
           <div className="pt-3 border-t border-[#E2E8F0] flex items-center justify-between">
             <span className="text-sm font-bold text-[#64748B]">Total</span>
             <span className="text-xl font-extrabold text-[#0F172A]">
-              R$ {calculatedTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+              {formatCurrencyBRL(calculatedTotal)}
             </span>
           </div>
 

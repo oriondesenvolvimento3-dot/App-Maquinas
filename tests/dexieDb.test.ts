@@ -15,9 +15,9 @@ describe('DexieDB - Camada de Banco de Dados Offline', () => {
     await db.cached_profiles.clear();
   });
 
-  it('deve inicializar o banco retroscave_db na versão 3', () => {
+  it('deve inicializar o banco retroscave_db na versão 4', () => {
     expect(db.name).toBe('retroscave_db');
-    expect(db.verno).toBe(3);
+    expect(db.verno).toBe(4);
   });
 
   it('deve permitir consulta por server_id indexado no offline_work_logs', async () => {
@@ -42,11 +42,12 @@ describe('DexieDB - Camada de Banco de Dados Offline', () => {
     expect(found?.server_id).toBe('uuid-test-index');
   });
 
-  it('deve conter as tabelas offline_work_logs, cached_machines e cached_profiles', () => {
+  it('deve conter as tabelas offline_work_logs, cached_machines, cached_profiles e scheduled_services', () => {
     const tableNames = db.tables.map((table) => table.name);
     expect(tableNames).toContain('offline_work_logs');
     expect(tableNames).toContain('cached_machines');
     expect(tableNames).toContain('cached_profiles');
+    expect(tableNames).toContain('scheduled_services');
   });
 
   it('deve validar a estrutura de um registro OfflineWorkLog', () => {
