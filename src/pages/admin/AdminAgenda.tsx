@@ -638,28 +638,28 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
     switch (status) {
       case 'em_andamento':
         return (
-          <span className="px-1.5 py-0.5 bg-amber-100/90 text-amber-900 border border-amber-300 rounded-md text-xs font-semibold inline-flex items-center gap-1 shrink-0">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+          <span className="px-2 py-0.5 bg-amber-100/90 text-amber-900 border border-amber-300 rounded-md text-[11px] font-semibold inline-flex items-center gap-1 shrink-0 whitespace-nowrap">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
             Em Andamento
           </span>
         );
       case 'concluido':
         return (
-          <span className="px-1.5 py-0.5 bg-[#DCFCE7] text-[#166534] border border-[#86EFAC] rounded-md text-xs font-semibold inline-flex items-center gap-1 shrink-0">
-            <CheckCircle2 className="w-3 h-3" />
+          <span className="px-2 py-0.5 bg-[#DCFCE7] text-[#166534] border border-[#86EFAC] rounded-md text-[11px] font-semibold inline-flex items-center gap-1 shrink-0 whitespace-nowrap">
+            <CheckCircle2 className="w-3 h-3 shrink-0" />
             Concluído
           </span>
         );
       case 'cancelado':
         return (
-          <span className="px-1.5 py-0.5 bg-[#FEE2E2] text-[#991B1B] border border-red-200 rounded-md text-xs font-semibold shrink-0">
+          <span className="px-2 py-0.5 bg-[#FEE2E2] text-[#991B1B] border border-red-200 rounded-md text-[11px] font-semibold shrink-0 whitespace-nowrap">
             Cancelado
           </span>
         );
       case 'agendado':
       default:
         return (
-          <span className="px-1.5 py-0.5 bg-sky-100/90 text-sky-800 border border-sky-200 rounded-md text-xs font-semibold shrink-0">
+          <span className="px-2 py-0.5 bg-sky-100/90 text-sky-800 border border-sky-200 rounded-md text-[11px] font-semibold shrink-0 whitespace-nowrap">
             Agendado
           </span>
         );
@@ -718,43 +718,43 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
             setDetailSchedule(item);
           }
         }}
-        className={`w-full text-left border border-l-4 rounded-r-lg p-2.5 shadow-2xs transition-all cursor-pointer active:scale-[0.99] space-y-1 ${getTimelineBlockStyle(
+        className={`w-full min-w-0 overflow-hidden text-left border border-l-4 rounded-r-lg p-2.5 shadow-2xs transition-all cursor-pointer active:scale-[0.99] space-y-1 ${getTimelineBlockStyle(
           item
         )}`}
       >
-        {/* Linha 1 (Topo): Horário/Turno compacto + Badge de Status à direita */}
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[11px] font-medium text-slate-500">
+        {/* Topo do card: Horário à esquerda e Badge de Status à direita */}
+        <div className="flex items-center justify-between gap-1.5 min-w-0">
+          <span className="text-[11px] font-medium text-slate-500 truncate">
             {formatPeriodTimeRange(period)}
           </span>
           {renderStatusBadge(item.status)}
         </div>
 
-        {/* Linha 2 (Principal): Nome do Cliente em negrito + Tipo de Serviço sutil */}
-        <div className="flex items-baseline gap-1.5 min-w-0">
-          <span className="font-semibold text-sm text-slate-900 truncate">
+        {/* Meio do card: Nome do Cliente em destaque e Tipo de Serviço */}
+        <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 min-w-0">
+          <span className="font-semibold text-sm text-slate-900 truncate max-w-full">
             {item.client_name}
           </span>
-          <span className="text-xs text-slate-500 font-normal truncate">
+          <span className="text-xs text-slate-500 font-normal truncate max-w-full">
             • {item.service_type}
           </span>
         </div>
 
-        {/* Linha 3 (Detalhes em linha única compacta): Máquina + Operador (1º nome) + Valor no canto direito */}
-        <div className="flex items-center justify-between gap-2 pt-0.5">
-          <div className="flex items-center gap-2 text-xs text-slate-600 min-w-0 truncate">
-            <span className="inline-flex items-center gap-1 truncate">
+        {/* Rodapé do card: Tags compactas de Máquina / Operador à esquerda e Valor à direita */}
+        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 pt-0.5 min-w-0">
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-slate-600 min-w-0">
+            <span className="inline-flex items-center gap-1 min-w-0 max-w-[130px]">
               <Truck className="w-3.5 h-3.5 text-slate-400 shrink-0" />
               <span className="truncate">{item.machine_name || 'A definir'}</span>
             </span>
-            <span className="inline-flex items-center gap-1 truncate">
+            <span className="inline-flex items-center gap-1 min-w-0 max-w-[100px]">
               <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
               <span className="truncate">{operatorFirstName}</span>
             </span>
           </div>
 
           {priceLabel && (
-            <span className="text-xs font-semibold text-slate-800 shrink-0 ml-auto">
+            <span className="text-xs font-semibold text-slate-800 shrink-0 ml-auto whitespace-nowrap">
               {priceLabel}
             </span>
           )}
@@ -764,7 +764,7 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
   };
 
   return (
-    <div className="relative flex flex-col justify-between w-full max-w-md mx-auto min-h-screen overflow-y-auto bg-[#F8FAFC] shadow-2xl pb-24">
+    <div className="relative flex flex-col justify-between w-full max-w-md mx-auto min-h-screen overflow-x-hidden overflow-y-auto bg-[#F8FAFC] shadow-2xl pb-24">
       {/* Toast de Feedback */}
       {toastMessage && (
         <div
@@ -776,109 +776,98 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
         </div>
       )}
 
-      {/* 1. TOPO / CABEÇALHO DE NAVEGAÇÃO TEMPORAL */}
-      <header className="px-5 pt-3.5 pb-3 bg-white border-b border-[#E2E8F0] sticky top-0 z-20 space-y-3">
-        {/* Linha de Status e Alternador de Visão Discreto */}
-        <div className="flex items-center justify-between text-xs text-[#0F172A]">
-          <span className="font-semibold text-[#64748B]">{formatTimeHHMM()}</span>
+      {/* 1. TOPO / CABEÇALHO DE NAVEGAÇÃO TEMPORAL (MOBILE-FIRST) */}
+      <header className="px-3.5 sm:px-5 pt-3 pb-3 bg-white border-b border-[#E2E8F0] sticky top-0 z-20 space-y-2.5">
+        {/* Segmented Control 100% da largura no mobile ("Dia / Semana" vs "Lista Geral") */}
+        <div className="grid grid-cols-2 w-full bg-[#F1F5F9] p-1 rounded-xl border border-[#E2E8F0]">
+          <button
+            id="btn-view-calendar"
+            type="button"
+            onClick={() => setViewMode('calendar')}
+            className={`w-full py-1.5 px-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              viewMode === 'calendar'
+                ? 'bg-white text-[#0F172A] shadow-2xs'
+                : 'text-[#64748B] hover:text-[#0F172A]'
+            }`}
+          >
+            <CalendarDays className="w-3.5 h-3.5 text-[#F59E0B] shrink-0" />
+            <span className="truncate">Dia / Semana</span>
+          </button>
 
-          {/* Segmented Control: Dia / Semana vs Lista Geral */}
-          <div className="inline-flex items-center bg-[#F1F5F9] p-0.5 rounded-xl border border-[#E2E8F0]">
-            <button
-              id="btn-view-calendar"
-              type="button"
-              onClick={() => setViewMode('calendar')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
-                viewMode === 'calendar'
-                  ? 'bg-white text-[#0F172A] shadow-2xs'
-                  : 'text-[#64748B] hover:text-[#0F172A]'
-              }`}
-            >
-              <CalendarDays className="w-3.5 h-3.5 text-[#F59E0B]" />
-              <span>Dia / Semana</span>
-            </button>
-
-            <button
-              id="btn-view-list"
-              type="button"
-              onClick={() => setViewMode('list')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
-                viewMode === 'list'
-                  ? 'bg-white text-[#0F172A] shadow-2xs'
-                  : 'text-[#64748B] hover:text-[#0F172A]'
-              }`}
-            >
-              <List className="w-3.5 h-3.5" />
-              <span>Lista Geral</span>
-            </button>
-          </div>
+          <button
+            id="btn-view-list"
+            type="button"
+            onClick={() => setViewMode('list')}
+            className={`w-full py-1.5 px-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              viewMode === 'list'
+                ? 'bg-white text-[#0F172A] shadow-2xs'
+                : 'text-[#64748B] hover:text-[#0F172A]'
+            }`}
+          >
+            <List className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Lista Geral</span>
+          </button>
         </div>
 
-        {/* Linha Principal: Título / Mês-Ano + Botão Fixo "+ Novo Agendamento" */}
-        <div className="flex items-center justify-between gap-2">
-          {viewMode === 'calendar' ? (
-            <div className="flex items-center gap-1.5">
-              <div className="flex items-center bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl p-0.5">
-                <button
-                  id="btn-prev-week"
-                  type="button"
-                  onClick={handlePrevWeek}
-                  aria-label="Semana anterior"
-                  className="w-7 h-7 rounded-lg flex items-center justify-center text-[#0F172A] hover:bg-white transition-colors cursor-pointer"
-                >
-                  <ChevronLeft className="w-4 h-4 stroke-[2.5]" />
-                </button>
-                <button
-                  id="btn-next-week"
-                  type="button"
-                  onClick={handleNextWeek}
-                  aria-label="Próxima semana"
-                  className="w-7 h-7 rounded-lg flex items-center justify-center text-[#0F172A] hover:bg-white transition-colors cursor-pointer"
-                >
-                  <ChevronRight className="w-4 h-4 stroke-[2.5]" />
-                </button>
-              </div>
+        {/* Linha do Mês e Botão "+ Novo Agendamento" */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-2 min-w-0">
+            {viewMode === 'calendar' ? (
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <div className="flex items-center bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl p-0.5 shrink-0">
+                  <button
+                    id="btn-prev-week"
+                    type="button"
+                    onClick={handlePrevWeek}
+                    aria-label="Semana anterior"
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-[#0F172A] hover:bg-white transition-colors cursor-pointer"
+                  >
+                    <ChevronLeft className="w-4 h-4 stroke-[2.5]" />
+                  </button>
+                  <button
+                    id="btn-next-week"
+                    type="button"
+                    onClick={handleNextWeek}
+                    aria-label="Próxima semana"
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-[#0F172A] hover:bg-white transition-colors cursor-pointer"
+                  >
+                    <ChevronRight className="w-4 h-4 stroke-[2.5]" />
+                  </button>
+                </div>
 
-              <div>
-                <h1 className="text-base font-extrabold text-[#0F172A] tracking-tight leading-tight">
-                  {formatMonthYearLabel(selectedDate)}
-                </h1>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] font-medium text-[#64748B]">
-                    Agenda Semanal
-                  </span>
+                <div className="min-w-0 flex items-center gap-2 flex-wrap">
+                  <h1 className="text-base font-extrabold text-[#0F172A] tracking-tight leading-tight truncate">
+                    {formatMonthYearLabel(selectedDate)}
+                  </h1>
                   {selectedDate !== todayStr && (
                     <button
                       id="btn-jump-today"
                       type="button"
                       onClick={handleGoToToday}
-                      className="text-[10px] font-extrabold text-[#B45309] bg-[#FEF3C7] hover:bg-[#FDE68A] px-2 py-0.5 rounded-full transition-colors cursor-pointer"
+                      className="text-[10px] font-extrabold text-[#B45309] bg-[#FEF3C7] hover:bg-[#FDE68A] px-2 py-0.5 rounded-full transition-colors cursor-pointer shrink-0"
                     >
                       Hoje
                     </button>
                   )}
                 </div>
               </div>
-            </div>
-          ) : (
-            <div>
-              <h1 className="text-lg font-extrabold text-[#0F172A] tracking-tight">
-                Agenda de Serviços
-              </h1>
-              <p className="text-[11px] text-[#64748B] font-medium">
-                Todos os agendamentos cadastrados
-              </p>
-            </div>
-          )}
+            ) : (
+              <div className="min-w-0">
+                <h1 className="text-base font-extrabold text-[#0F172A] tracking-tight truncate">
+                  Agenda de Serviços
+                </h1>
+              </div>
+            )}
+          </div>
 
           <button
             id="btn-new-schedule"
             type="button"
             onClick={() => handleOpenNewModal(selectedDate)}
-            className="h-10 px-3.5 bg-[#FBBF24] hover:bg-[#F59E0B] active:scale-[0.98] text-[#0F172A] font-extrabold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
+            className="w-full h-10 px-3.5 bg-[#FBBF24] hover:bg-[#F59E0B] active:scale-[0.99] text-[#0F172A] font-extrabold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
           >
-            <Plus className="w-4 h-4 stroke-[2.5]" />
-            <span>Novo Agendamento</span>
+            <Plus className="w-4 h-4 stroke-[2.5] shrink-0" />
+            <span>+ Novo Agendamento</span>
           </button>
         </div>
 
@@ -887,7 +876,7 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
           <div
             role="tablist"
             aria-label="Dias da semana"
-            className="grid grid-cols-7 gap-1.5 pt-0.5"
+            className="grid grid-cols-7 gap-1 pt-0.5"
           >
             {weekDays.map((day) => {
               const isSelected = day.dateStr === selectedDate;
@@ -909,16 +898,16 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
                   role="tab"
                   aria-selected={isSelected}
                   onClick={() => setSelectedDate(day.dateStr)}
-                  className={`py-2 px-1 rounded-2xl flex flex-col items-center justify-center transition-all cursor-pointer relative border ${
+                  className={`py-1.5 px-0.5 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer relative border min-w-0 ${
                     isSelected
-                      ? 'bg-[#0F172A] text-white border-[#0F172A] shadow-md scale-[1.02]'
+                      ? 'bg-[#0F172A] text-white border-[#0F172A] shadow-sm'
                       : day.isToday
                       ? 'bg-[#FEF3C7]/60 text-[#0F172A] border-[#FBBF24] hover:bg-[#FEF3C7]'
                       : 'bg-[#F8FAFC] text-[#475569] border-[#E2E8F0] hover:border-[#CBD5E1] hover:bg-white'
                   }`}
                 >
                   <span
-                    className={`text-[10px] font-bold uppercase tracking-wider ${
+                    className={`text-[9px] font-bold uppercase tracking-tight ${
                       isSelected
                         ? 'text-[#FBBF24]'
                         : day.isToday
@@ -930,7 +919,7 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
                   </span>
 
                   <span
-                    className={`text-sm font-extrabold mt-0.5 ${
+                    className={`text-xs sm:text-sm font-extrabold mt-0.5 ${
                       isSelected ? 'text-white' : 'text-[#0F172A]'
                     }`}
                   >
@@ -938,7 +927,7 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
                   </span>
 
                   {/* Ponto Indicador de Agendamentos no Dia */}
-                  <div className="h-2 flex items-center justify-center gap-0.5 mt-1">
+                  <div className="h-2 flex items-center justify-center gap-0.5 mt-0.5">
                     {activeSchedulesCount > 0 ? (
                       <>
                         <span
@@ -1051,7 +1040,7 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
       </header>
 
       {/* 2. CORPO PRINCIPAL: VISÃO EM GRADE DE HORÁRIOS OU LISTA GERAL */}
-      <main className="flex-1 px-5 py-3.5 space-y-3">
+      <main className="flex-1 px-3.5 sm:px-5 py-3 space-y-3 w-full overflow-hidden">
         {isLoading ? (
           <div className="py-14 text-center text-xs font-semibold text-[#64748B] flex flex-col items-center gap-2">
             <Loader2 className="w-6 h-6 animate-spin text-[#FBBF24]" />
@@ -1061,26 +1050,26 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
           /* =========================================================
            * MODO 1: CALENDÁRIO DIÁRIO COM GRADE DE HORÁRIOS / TURNOS
            * ========================================================= */
-          <div className="space-y-2.5">
-            {/* Barra de Data Selecionada (Sem botão redundante nem card intermediário) */}
-            <div className="flex items-center justify-between px-1">
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm font-extrabold text-[#0F172A] capitalize">
+          <div className="space-y-2.5 w-full overflow-hidden">
+            {/* Subtítulo da Data Selecionada (alinhado sem quebra desalinhada) */}
+            <div className="flex flex-wrap items-center justify-between gap-1.5 px-0.5">
+              <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                <h2 className="text-xs sm:text-sm font-extrabold text-[#0F172A] capitalize truncate">
                   {formatFullDayHeading(selectedDate)}
                 </h2>
                 {selectedDate === todayStr && (
-                  <span className="px-2 py-0.5 bg-[#FEF3C7] text-[#B45309] border border-[#FDE68A] rounded-full text-[10px] font-extrabold uppercase">
+                  <span className="px-2 py-0.5 bg-[#FEF3C7] text-[#B45309] border border-[#FDE68A] rounded-full text-[10px] font-extrabold uppercase shrink-0">
                     Hoje
                   </span>
                 )}
                 {selectedDate === tomorrowStr && (
-                  <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-[10px] font-extrabold uppercase">
+                  <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-[10px] font-extrabold uppercase shrink-0">
                     Amanhã
                   </span>
                 )}
               </div>
 
-              <span className="text-[11px] font-semibold text-[#64748B]">
+              <span className="text-[11px] font-semibold text-[#64748B] shrink-0 whitespace-nowrap ml-auto">
                 {selectedDaySchedules.length === 0
                   ? 'Livre'
                   : `${selectedDaySchedules.length} ${
@@ -1092,13 +1081,13 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
             </div>
 
             {/* GRADE DE HORÁRIOS E LINHA DO TEMPO DIÁRIA (07:00 às 17:00) */}
-            <div className="bg-white border border-[#E2E8F0] rounded-2xl p-4 shadow-2xs relative overflow-hidden">
-              <div className="flex items-center justify-between pb-3 mb-2 border-b border-[#F1F5F9]">
-                <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#64748B]">
+            <div className="w-full bg-white border border-[#E2E8F0] rounded-2xl p-3 sm:p-4 shadow-2xs relative overflow-hidden">
+              <div className="flex items-center justify-between gap-2 pb-2.5 mb-2 border-b border-[#F1F5F9]">
+                <span className="text-[10px] sm:text-[11px] font-extrabold uppercase tracking-wider text-[#64748B] truncate">
                   Linha do Tempo Diária (07:00 – 17:00)
                 </span>
                 {selectedDate === todayStr && (
-                  <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-red-600">
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-red-600 shrink-0 whitespace-nowrap">
                     <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
                     Agora: {currentTimeIndicator.timeLabel}
                   </span>
@@ -1107,21 +1096,21 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
 
               {/* Faixa de Serviços de Período INTEGRAL (07:00 às 17:00) */}
               {integralSchedules.length > 0 && (
-                <div className="mb-3.5 space-y-2">
+                <div className="mb-3 space-y-2 w-full overflow-hidden">
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-100 text-amber-900">
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 shrink-0">
                       Expediente Integral • 07:00 às 17:00
                     </span>
                     <div className="flex-1 h-px bg-amber-200/70" />
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-2 w-full min-w-0">
                     {integralSchedules.map((item) => renderTimelineServiceBlock(item))}
                   </div>
                 </div>
               )}
 
-              {/* Linha do Tempo com Coluna de Horas à Esquerda */}
-              <div className="relative space-y-0">
+              {/* Linha do Tempo com Coluna de Horas Compacta à Esquerda */}
+              <div className="relative space-y-0 w-full">
                 {/* Linha Vermelha de Horário Atual (apenas quando visualizando Hoje) */}
                 {selectedDate === todayStr && (
                   <div
@@ -1129,7 +1118,7 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
                     style={{ top: `${currentTimeIndicator.percent}%` }}
                     className="absolute left-0 right-0 z-10 flex items-center pointer-events-none"
                   >
-                    <span className="w-2.5 h-2.5 rounded-full bg-red-500 ring-4 ring-red-500/20 shrink-0" />
+                    <span className="w-2 h-2 rounded-full bg-red-500 ring-4 ring-red-500/20 shrink-0" />
                     <div className="flex-1 h-[1.5px] bg-red-500/80" />
                     <span className="ml-1 px-1.5 py-0.5 rounded bg-red-500 text-white text-[9px] font-extrabold">
                       {currentTimeIndicator.timeLabel}
@@ -1138,103 +1127,103 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
                 )}
 
                 {/* BLOCO MANHÃ: 07:00 e 10:00 */}
-                <div className="grid grid-cols-[54px_1fr] gap-3 py-3.5">
-                  {/* Coluna de Horários da Manhã */}
-                  <div className="flex flex-col justify-between text-right pr-2 border-r border-slate-200 py-1 min-h-[96px]">
+                <div className="grid grid-cols-[44px_minmax(0,1fr)] gap-2 py-3">
+                  {/* Coluna de Horários da Manhã (Compacta w-11) */}
+                  <div className="w-11 flex flex-col justify-between text-right pr-1.5 border-r border-slate-200 py-0.5 min-h-[88px]">
                     <div>
-                      <span className="text-xs font-extrabold text-[#0F172A] block">
+                      <span className="text-[11px] font-extrabold text-[#0F172A] block leading-tight">
                         07:00
                       </span>
-                      <span className="text-[9px] font-bold text-[#64748B] uppercase">
+                      <span className="text-[8px] font-bold text-[#64748B] uppercase block leading-tight">
                         Manhã
                       </span>
                     </div>
-                    <span className="text-[11px] font-semibold text-[#94A3B8]">
+                    <span className="text-[10px] font-semibold text-[#94A3B8] leading-tight">
                       10:00
                     </span>
                   </div>
 
                   {/* Slot de Cards da Manhã */}
-                  <div className="py-0.5 space-y-2">
+                  <div className="py-0.5 space-y-2 min-w-0">
                     {morningSchedules.length > 0 ? (
                       morningSchedules.map((item) => renderTimelineServiceBlock(item))
                     ) : (
                       <button
                         type="button"
                         onClick={() => handleOpenNewModal(selectedDate, 'manha')}
-                        className="w-full min-h-[84px] rounded-xl border border-dashed border-slate-200 hover:border-[#FBBF24] bg-[#F8FAFC]/60 hover:bg-amber-50/30 px-3.5 py-3 text-left transition-all flex items-center justify-between group cursor-pointer"
+                        className="w-full min-h-[80px] rounded-xl border border-dashed border-slate-200 hover:border-[#FBBF24] bg-[#F8FAFC]/60 hover:bg-amber-50/30 px-3 py-2.5 text-left transition-all flex items-center justify-between gap-2 group cursor-pointer"
                       >
-                        <div>
-                          <p className="text-xs font-bold text-[#475569] group-hover:text-[#0F172A]">
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-[#475569] group-hover:text-[#0F172A] truncate">
                             Turno da Manhã (07:00 – 12:00)
                           </p>
-                          <p className="text-[11px] text-[#94A3B8]">
-                            Toque para agendar serviço pela manhã
+                          <p className="text-[11px] text-[#94A3B8] truncate">
+                            Toque para agendar pela manhã
                           </p>
                         </div>
-                        <Plus className="w-4 h-4 text-[#94A3B8] group-hover:text-[#F59E0B]" />
+                        <Plus className="w-4 h-4 text-[#94A3B8] group-hover:text-[#F59E0B] shrink-0" />
                       </button>
                     )}
                   </div>
                 </div>
 
                 {/* MARCADOR 12:00 - INTERVALO DE ALMOÇO */}
-                <div className="grid grid-cols-[54px_1fr] gap-3 py-3">
-                  <div className="text-right pr-2 border-r border-slate-200">
-                    <span className="text-xs font-extrabold text-[#475569] block">
+                <div className="grid grid-cols-[44px_minmax(0,1fr)] gap-2 py-2.5">
+                  <div className="w-11 text-right pr-1.5 border-r border-slate-200">
+                    <span className="text-[11px] font-extrabold text-[#475569] block leading-tight">
                       12:00
                     </span>
-                    <span className="text-[9px] font-bold text-[#94A3B8] uppercase">
+                    <span className="text-[8px] font-bold text-[#94A3B8] uppercase block leading-tight">
                       Almoço
                     </span>
                   </div>
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-100/80 border border-slate-200/70 text-[11px] font-semibold text-[#64748B]">
-                    <Coffee className="w-3.5 h-3.5 text-[#94A3B8]" />
-                    <span>12:00 às 13:00 • Intervalo de Almoço</span>
+                  <div className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-slate-100/80 border border-slate-200/70 text-[11px] font-semibold text-[#64748B] min-w-0">
+                    <Coffee className="w-3.5 h-3.5 text-[#94A3B8] shrink-0" />
+                    <span className="truncate">12:00 às 13:00 • Intervalo de Almoço</span>
                   </div>
                 </div>
 
                 {/* BLOCO TARDE: 13:00 às 17:00 */}
-                <div className="grid grid-cols-[54px_1fr] gap-3 py-3.5">
-                  {/* Coluna de Horários da Tarde */}
-                  <div className="flex flex-col justify-between text-right pr-2 border-r border-slate-200 py-1 min-h-[96px]">
+                <div className="grid grid-cols-[44px_minmax(0,1fr)] gap-2 py-3">
+                  {/* Coluna de Horários da Tarde (Compacta w-11) */}
+                  <div className="w-11 flex flex-col justify-between text-right pr-1.5 border-r border-slate-200 py-0.5 min-h-[88px]">
                     <div>
-                      <span className="text-xs font-extrabold text-[#0F172A] block">
+                      <span className="text-[11px] font-extrabold text-[#0F172A] block leading-tight">
                         13:00
                       </span>
-                      <span className="text-[9px] font-bold text-[#64748B] uppercase">
+                      <span className="text-[8px] font-bold text-[#64748B] uppercase block leading-tight">
                         Tarde
                       </span>
                     </div>
                     <div>
-                      <span className="text-xs font-extrabold text-[#475569] block">
+                      <span className="text-[11px] font-extrabold text-[#475569] block leading-tight">
                         17:00
                       </span>
-                      <span className="text-[9px] font-semibold text-[#94A3B8]">
+                      <span className="text-[8px] font-semibold text-[#94A3B8] block leading-tight">
                         Encerr.
                       </span>
                     </div>
                   </div>
 
                   {/* Slot de Cards da Tarde */}
-                  <div className="py-0.5 space-y-2">
+                  <div className="py-0.5 space-y-2 min-w-0">
                     {afternoonSchedules.length > 0 ? (
                       afternoonSchedules.map((item) => renderTimelineServiceBlock(item))
                     ) : (
                       <button
                         type="button"
                         onClick={() => handleOpenNewModal(selectedDate, 'tarde')}
-                        className="w-full min-h-[84px] rounded-xl border border-dashed border-slate-200 hover:border-[#FBBF24] bg-[#F8FAFC]/60 hover:bg-amber-50/30 px-3.5 py-3 text-left transition-all flex items-center justify-between group cursor-pointer"
+                        className="w-full min-h-[80px] rounded-xl border border-dashed border-slate-200 hover:border-[#FBBF24] bg-[#F8FAFC]/60 hover:bg-amber-50/30 px-3 py-2.5 text-left transition-all flex items-center justify-between gap-2 group cursor-pointer"
                       >
-                        <div>
-                          <p className="text-xs font-bold text-[#475569] group-hover:text-[#0F172A]">
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-[#475569] group-hover:text-[#0F172A] truncate">
                             Turno da Tarde (13:00 – 17:00)
                           </p>
-                          <p className="text-[11px] text-[#94A3B8]">
-                            Toque para agendar serviço à tarde
+                          <p className="text-[11px] text-[#94A3B8] truncate">
+                            Toque para agendar à tarde
                           </p>
                         </div>
-                        <Plus className="w-4 h-4 text-[#94A3B8] group-hover:text-[#F59E0B]" />
+                        <Plus className="w-4 h-4 text-[#94A3B8] group-hover:text-[#F59E0B] shrink-0" />
                       </button>
                     )}
                   </div>
