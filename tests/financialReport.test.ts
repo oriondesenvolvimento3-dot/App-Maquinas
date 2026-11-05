@@ -6,6 +6,8 @@ import {
 import { generateSingleServiceReceiptPdf } from '../src/utils/pdfGenerator';
 import { fetchAdminWorkLogs } from '../src/services/adminService';
 import { db } from '../src/lib/dexieDb';
+import { getDatePresetRange } from '../src/pages/admin/AdminHistory';
+import { formatDateISO } from '../src/utils/formatters';
 
 describe('Relatórios Financeiros e Compartilhamento', () => {
   beforeEach(async () => {
@@ -194,7 +196,7 @@ describe('Relatórios Financeiros e Compartilhamento', () => {
   });
 
   describe('Geração de Notinha / Comprovante Individual em PDF (generateSingleServiceReceiptPdf)', () => {
-    it('deve gerar comprovante A5 sem erros para serviço aprovado', () => {
+    it('deve gerar comprovante A5 com valores (showPricing: true) sem erros para serviço aprovado', () => {
       expect(() => {
         generateSingleServiceReceiptPdf(
           {
@@ -211,9 +213,60 @@ describe('Relatórios Financeiros e Compartilhamento', () => {
             observations: 'Abertura de açude',
           },
           160,
-          1280
+          1280,
+          true
         );
       }).not.toThrow();
+    });
+
+    it('deve gerar comprovante A5 sem valores (showPricing: false, apenas horas) sem erros', () => {
+      expect(() => {
+        generateSingleServiceReceiptPdf(
+          {
+            client_name: 'Fazenda Santa Maria',
+            client_phone: '(35) 99123-4567',
+            machine_name: 'Retroescavadeira Case 580N',
+            operator_name: 'João Silva',
+            service_date: '2026-10-26',
+            start_hours: 1000,
+            end_hours: 1008,
+            total_hours: 8,
+            hourly_rate: 160,
+            total_amount: 1280,
+            observations: 'Abertura de açude',
+          },
+          160,
+          1280,
+          false
+        );
+      }).not.toThrow();
+    });
+  });
+
+  describe('Atalhos de Período Financeiro (Date Presets) e formatDateISO', () => {
+    it('formatDateISO deve formatar data local sem defasagem de fuso horário UTC', () => {
+      const fixedDate = new Date(2026, 10, 5); // 05/11/2026
+      expect(formatDateISO(fixedDate)).toBe('2026-11-05');
+    });
+
+    it('getDatePresetRange deve retornar datas corretas para cada atalho rápido', () => {
+      const ultimos30 = getDatePresetRange('ultimos_30');
+      expect(ultimos30.startDate).toBeTruthy();
+      expect(ultimos30.endDate).toBeTruthy();
+      expect(ultimos30.startDate <= ultimos30.endDate).toBe(true);
+
+      const esteMes = getDatePresetRange('este_mes');
+      const now = new Date();
+      expect(esteMes.startDate).toBe(formatDateISO(new Date(now.getFullYear(), now.getMonth(), 1)));
+      expect(esteMes.endDate).toBe(formatDateISO(new Date(now.getFullYear(), now.getMonth() + 1, 0)));
+
+      const mesAnterior = getDatePresetRange('mes_anterior');
+      expect(mesAnterior.startDate).toBe(formatDateISO(new Date(now.getFullYear(), now.getMonth() - 1, 1)));
+      expect(mesAnterior.endDate).toBe(formatDateISO(new Date(now.getFullYear(), now.getMonth(), 0)));
+
+      const tudo = getDatePresetRange('tudo');
+      expect(tudo.startDate).toBe('');
+      expect(tudo.endDate).toBe('');
     });
   });
 });

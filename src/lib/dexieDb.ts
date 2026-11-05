@@ -261,10 +261,11 @@ export async function clearAllLocalData(): Promise<void> {
  * inseridos por versões anteriores. Executa uma única vez por cliente/navegador.
  */
 export async function purgeLegacyMockData(): Promise<void> {
-  const PURGE_KEY = 'retroscave_db_purged_mock_records_v5';
+  const PURGE_KEY = 'retroscave_db_purged_mock_records_v6';
   if (typeof window !== 'undefined' && !localStorage.getItem(PURGE_KEY)) {
     try {
       await clearAllLocalData();
+      localStorage.removeItem('retroscave_removed_clients_v1');
       localStorage.setItem(PURGE_KEY, 'true');
       console.info('[RetroscaveDB] Base local IndexedDB limpa e zerada com sucesso.');
     } catch (err) {

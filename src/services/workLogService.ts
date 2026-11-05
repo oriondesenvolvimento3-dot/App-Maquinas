@@ -10,7 +10,8 @@ import {
   formatTimeHHMM,
   calculateTotalHours,
 } from '../utils/formatters';
-import type { Machine, OfflineWorkLog } from '../types/database';
+import type { Machine, OfflineWorkLog, BillingUnit } from '../types/database';
+import { getStoredMachineBillingUnits } from './adminService';
 
 export { formatTimeHHMM, calculateTotalHours };
 
@@ -20,6 +21,8 @@ export interface StartServiceFormData {
   operator_id: string;
   operator_name: string;
   start_hours: number;
+  billing_unit?: BillingUnit;
+  km_initial?: number;
 }
 
 export interface FinishServiceFormData {
@@ -34,6 +37,10 @@ export interface FinishServiceFormData {
   service_date: string;
   start_hours: number;
   end_hours: number;
+  billing_unit?: BillingUnit;
+  km_initial?: number;
+  km_final?: number;
+  total_km?: number;
   observations?: string | null;
   started_at?: string;
   start_time?: string;
@@ -51,6 +58,10 @@ export interface WorkLogFormData {
   service_date: string;
   start_hours: number;
   end_hours: number;
+  billing_unit?: BillingUnit;
+  km_initial?: number;
+  km_final?: number;
+  total_km?: number;
   observations: string | null;
 }
 
@@ -73,6 +84,7 @@ export interface ValidationResult {
  */
 export async function getActiveMachines(isOnline?: boolean): Promise<Machine[]> {
   const online = isOnline ?? (typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured());
+  const storedUnits = getStoredMachineBillingUnits();
 
   if (online) {
     try {
@@ -83,15 +95,29 @@ export async function getActiveMachines(isOnline?: boolean): Promise<Machine[]> 
         .order('name');
 
       if (!error && data) {
-        await setCachedMachines(data as Machine[]);
-        return data as Machine[];
+        const enriched = (data as Machine[]).map((m) => ({
+          ...m,
+          billing_unit:
+            m.billing_unit === 'km' || storedUnits[m.id] === 'km'
+              ? ('km' as const)
+              : ('hour' as const),
+        }));
+        await setCachedMachines(enriched);
+        return enriched;
       }
     } catch (err) {
       console.warn('[WorkLogService] Falha ao consultar Supabase, lendo do Dexie:', err);
     }
   }
 
-  return await getCachedActiveMachines();
+  const cached = await getCachedActiveMachines();
+  return cached.map((m) => ({
+    ...m,
+    billing_unit:
+      m.billing_unit === 'km' || storedUnits[m.id] === 'km'
+        ? ('km' as const)
+        : ('hour' as const),
+  }));
 }
 
 /**
@@ -281,6 +307,10 @@ export async function startWorkLog(
       start_hours: formData.start_hours,
       end_hours: formData.start_hours,
       total_hours: 0,
+      billing_unit: formData.billing_unit || 'hour',
+      km_initial: formData.km_initial ?? (formData.billing_unit === 'km' ? formData.start_hours : undefined),
+      km_final: formData.km_initial ?? (formData.billing_unit === 'km' ? formData.start_hours : undefined),
+      total_km: 0,
       observations: null,
       status: 'em_andamento',
       started_at: now,
@@ -362,6 +392,11 @@ export async function finishWorkLog(
   // 1. Salva primeiro no banco local Dexie com synced: false
   let targetLocalId: number | undefined = formData.localId;
   try {
+    const isKm = formData.billing_unit === 'km';
+    const kmInitial = formData.km_initial ?? (isKm ? formData.start_hours : undefined);
+    const kmFinal = formData.km_final ?? (isKm ? formData.end_hours : undefined);
+    const totalKm = formData.total_km ?? (isKm ? total_hours : undefined);
+
     if (targetLocalId) {
       await db.offline_work_logs.update(targetLocalId, {
         client_name: formData.client_name.trim(),
@@ -369,6 +404,10 @@ export async function finishWorkLog(
         service_date: formData.service_date,
         end_hours: formData.end_hours,
         total_hours,
+        ...(formData.billing_unit ? { billing_unit: formData.billing_unit } : {}),
+        km_initial: kmInitial,
+        km_final: kmFinal,
+        total_km: totalKm,
         observations: formData.observations?.trim() || null,
         status: 'pendente',
         started_at: startedIso,
@@ -391,6 +430,10 @@ export async function finishWorkLog(
         start_hours: formData.start_hours,
         end_hours: formData.end_hours,
         total_hours,
+        billing_unit: formData.billing_unit || 'hour',
+        km_initial: kmInitial,
+        km_final: kmFinal,
+        total_km: totalKm,
         observations: formData.observations?.trim() || null,
         status: 'pendente',
         started_at: startedIso,

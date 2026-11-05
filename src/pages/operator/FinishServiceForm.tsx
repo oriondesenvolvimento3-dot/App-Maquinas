@@ -44,10 +44,12 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [generalError, setGeneralError] = useState<string | null>(null);
 
-  // Cálculo reativo das horas trabalhadas
+  // Cálculo reativo das horas trabalhadas ou distância em KM
+  const isKm = activeLog.billing_unit === 'km';
   const numStart = Number(activeLog.start_hours || 0);
   const numEnd = parseFloat(endHours.replace(',', '.')) || 0;
   const calculatedHours = calculateTotalHours(numStart, numEnd);
+  const calculatedKm = numEnd >= numStart ? Number((numEnd - numStart).toFixed(1)) : 0;
   const isHorometerInvalid = endHours !== '' && numEnd < numStart;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -60,9 +62,11 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
     }
 
     if (!endHours || isNaN(numEnd)) {
-      errors.end_hours = 'Informe o horímetro final.';
+      errors.end_hours = isKm ? 'Informe a quilometragem final.' : 'Informe o horímetro final.';
     } else if (numEnd < numStart) {
-      errors.end_hours = `O horímetro final (${numEnd}h) deve ser maior ou igual ao inicial (${numStart}h).`;
+      errors.end_hours = isKm
+        ? `O KM final (${numEnd} km) deve ser maior ou igual ao inicial (${numStart} km).`
+        : `O horímetro final (${numEnd}h) deve ser maior ou igual ao inicial (${numStart}h).`;
     }
 
     if (!serviceDate) {
@@ -89,6 +93,10 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
       service_date: serviceDate,
       start_hours: numStart,
       end_hours: numEnd,
+      billing_unit: isKm ? 'km' : 'hour',
+      km_initial: isKm ? numStart : undefined,
+      km_final: isKm ? numEnd : undefined,
+      total_km: isKm ? calculatedKm : undefined,
       observations: observations.trim() || null,
       started_at: activeLog.started_at,
       start_time: activeLog.start_time,
@@ -106,6 +114,10 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
           service_date: serviceDate,
           start_hours: numStart,
           end_hours: numEnd,
+          billing_unit: isKm ? 'km' : 'hour',
+          km_initial: isKm ? numStart : undefined,
+          km_final: isKm ? numEnd : undefined,
+          total_km: isKm ? calculatedKm : undefined,
           observations: observations.trim() || null,
         });
       } else {
@@ -181,15 +193,17 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
               </div>
             </div>
 
-            {/* Horímetro Inicial */}
+            {/* Horímetro Inicial ou KM Inicial */}
             <div className="flex items-start gap-2.5">
               <div className="p-2 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0] text-[#0F172A] mt-0.5 shrink-0">
                 <Clock className="w-4 h-4 text-[#F59E0B]" />
               </div>
               <div>
-                <p className="text-[11px] font-medium text-[#64748B]">Horímetro Inicial</p>
+                <p className="text-[11px] font-medium text-[#64748B]">
+                  {isKm ? 'KM Inicial' : 'Horímetro Inicial'}
+                </p>
                 <p className="text-sm font-extrabold text-[#0F172A]">
-                  {numStart.toFixed(1)}h
+                  {isKm ? `${numStart.toLocaleString('pt-BR')} km` : `${numStart.toFixed(1)}h`}
                 </p>
               </div>
             </div>
@@ -208,7 +222,7 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
         {/* Formulário de Conclusão */}
         <form id="finish-service-form" onSubmit={handleSubmit} className="space-y-4">
           
-          {/* Horímetro Final */}
+          {/* Horímetro Final ou KM Final */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label
@@ -216,10 +230,10 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
                 className="flex items-center gap-1.5 text-xs font-bold text-[#0F172A] uppercase tracking-wider"
               >
                 <Clock className="w-4 h-4 text-[#F59E0B]" />
-                <span>Horímetro Final (h) *</span>
+                <span>{isKm ? 'KM Final (km) *' : 'Horímetro Final (h) *'}</span>
               </label>
               <span className="text-[11px] font-medium text-slate-500">
-                Mínimo: {numStart.toFixed(1)}h
+                Mínimo: {isKm ? `${numStart.toLocaleString('pt-BR')} km` : `${numStart.toFixed(1)}h`}
               </span>
             </div>
 
@@ -227,9 +241,9 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
               <input
                 id="end_hours"
                 type="number"
-                step="0.1"
+                step={isKm ? '1' : '0.1'}
                 min={numStart}
-                placeholder={`Ex: ${(numStart + 4.5).toFixed(1)}`}
+                placeholder={isKm ? `Ex: ${numStart + 50}` : `Ex: ${(numStart + 4.5).toFixed(1)}`}
                 value={endHours}
                 onChange={(e) => {
                   setEndHours(e.target.value);
@@ -245,7 +259,7 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
                 required
               />
               <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
-                HORAS
+                {isKm ? 'KM' : 'HORAS'}
               </span>
             </div>
 
@@ -255,12 +269,14 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
               </p>
             ) : isHorometerInvalid ? (
               <p className="text-xs font-medium text-rose-600 animate-fade-in">
-                O horímetro final deve ser maior ou igual ao inicial ({numStart}h).
+                {isKm
+                  ? `O KM final deve ser maior ou igual ao inicial (${numStart} km).`
+                  : `O horímetro final deve ser maior ou igual ao inicial (${numStart}h).`}
               </p>
             ) : null}
           </div>
 
-          {/* Destaque Reativo: Horas Trabalhadas Calculadas */}
+          {/* Destaque Reativo: Horas Trabalhadas ou Distância Percorrida */}
           <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200/80 rounded-2xl p-4 flex items-center justify-between shadow-sm">
             <div className="flex items-center gap-2.5">
               <div className="w-9 h-9 rounded-xl bg-emerald-500 text-white flex items-center justify-center shadow-sm">
@@ -268,16 +284,18 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
               </div>
               <div>
                 <p className="text-xs font-semibold text-emerald-800">
-                  Horas Trabalhadas
+                  {isKm ? 'Distância Percorrida' : 'Horas Trabalhadas'}
                 </p>
                 <p className="text-[11px] text-emerald-600">
-                  Cálculo automático (Final - Inicial)
+                  {isKm
+                    ? 'Cálculo automático (KM Final - KM Inicial)'
+                    : 'Cálculo automático (Final - Inicial)'}
                 </p>
               </div>
             </div>
             <div className="text-right">
               <span className="text-2xl font-black text-emerald-800 tracking-tight">
-                {calculatedHours.toFixed(1)}h
+                {isKm ? `${calculatedKm.toLocaleString('pt-BR')} km` : `${calculatedHours.toFixed(1)}h`}
               </span>
             </div>
           </div>

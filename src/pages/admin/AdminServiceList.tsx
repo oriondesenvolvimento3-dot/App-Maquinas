@@ -205,11 +205,22 @@ export const AdminServiceList: React.FC<AdminServiceListProps> = ({
             Carregando serviços...
           </div>
         ) : services.length === 0 ? (
-          <div className="py-12 text-center bg-white border border-[#E2E8F0] rounded-2xl p-6">
-            <p className="text-sm font-bold text-[#0F172A]">Nenhum registro encontrado.</p>
-            <p className="text-xs text-[#64748B] mt-1">
-              Não há registros com o status selecionado.
-            </p>
+          <div className="py-12 text-center bg-white border border-[#E2E8F0] rounded-2xl p-6 space-y-3">
+            <div>
+              <p className="text-sm font-bold text-[#0F172A]">Nenhum item cadastrado ainda</p>
+              <p className="text-xs text-[#64748B] mt-1">
+                Não há serviços registrados com o status selecionado.
+              </p>
+            </div>
+            {onNavigateToAgenda && (
+              <button
+                type="button"
+                onClick={onNavigateToAgenda}
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-[#FBBF24] hover:bg-[#F59E0B] text-[#0F172A] font-extrabold text-xs rounded-xl shadow-xs transition-all cursor-pointer"
+              >
+                <span>+ Cadastrar na Agenda</span>
+              </button>
+            )}
           </div>
         ) : (
           services.map((service) => (

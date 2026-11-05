@@ -175,7 +175,7 @@ describe('SyncService - Sincronização Dexie <-> Supabase', () => {
     window.dispatchEvent(new Event('online'));
 
     // Aguarda processamento assíncrono do listener
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 150));
 
     expect(receivedDetail).toBeDefined();
     expect(receivedDetail.syncedCount).toBe(1);

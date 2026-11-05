@@ -6,7 +6,7 @@ import {
   saveAdminClient,
   deleteAdminClient,
 } from '../../services/adminService';
-import type { Machine, Client } from '../../types/database';
+import type { Machine, Client, BillingUnit } from '../../types/database';
 import { applyPhoneMask } from '../../utils/formatters';
 import { AdminBottomNav } from '../../components/AdminBottomNav';
 import {
@@ -64,6 +64,7 @@ export const MachineManagement: React.FC<MachineManagementProps> = ({
   const [formModel, setFormModel] = useState<string>('');
   const [formRate, setFormRate] = useState<string>('0');
   const [formHours, setFormHours] = useState<string>('0');
+  const [formBillingUnit, setFormBillingUnit] = useState<BillingUnit>('hour');
   const [formActive, setFormActive] = useState<boolean>(true);
   const [isSavingMachine, setIsSavingMachine] = useState<boolean>(false);
 
@@ -125,6 +126,7 @@ export const MachineManagement: React.FC<MachineManagementProps> = ({
     setFormModel('');
     setFormRate('0');
     setFormHours('0');
+    setFormBillingUnit('hour');
     setFormActive(true);
     setErrorMessage(null);
     setIsMachineModalOpen(true);
@@ -136,6 +138,7 @@ export const MachineManagement: React.FC<MachineManagementProps> = ({
     setFormModel(m.model);
     setFormRate(String(m.hourly_rate));
     setFormHours(String(m.current_hours));
+    setFormBillingUnit(m.billing_unit === 'km' ? 'km' : 'hour');
     setFormActive(m.active);
     setErrorMessage(null);
     setIsMachineModalOpen(true);
@@ -154,6 +157,7 @@ export const MachineManagement: React.FC<MachineManagementProps> = ({
       model: formModel.trim() || 'Padrão',
       hourly_rate: parseFloat(formRate.replace(',', '.')) || 0,
       current_hours: parseFloat(formHours.replace(',', '.')) || 0,
+      billing_unit: formBillingUnit,
       active: formActive,
     });
 
@@ -368,11 +372,26 @@ export const MachineManagement: React.FC<MachineManagementProps> = ({
               <span>Carregando máquinas...</span>
             </div>
           ) : machines.length === 0 ? (
-            <div className="py-12 text-center bg-white border border-[#E2E8F0] rounded-2xl p-6">
-              <p className="text-sm font-bold text-[#0F172A]">Nenhuma máquina cadastrada</p>
-              <p className="text-xs text-[#64748B] mt-1">
-                Toque em &quot;+ Nova&quot; acima para cadastrar sua primeira máquina.
-              </p>
+            <div className="py-10 text-center bg-white border border-[#E2E8F0] rounded-2xl p-6 space-y-3">
+              <div className="w-11 h-11 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center mx-auto">
+                <Truck className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-[#0F172A]">
+                  Nenhum item cadastrado ainda
+                </p>
+                <p className="text-xs text-[#64748B] mt-1">
+                  Nenhuma máquina cadastrada. Adicione a primeira máquina para iniciar os registros.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={openNewMachineModal}
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-[#FBBF24] hover:bg-[#F59E0B] text-[#0F172A] font-extrabold text-xs rounded-xl shadow-xs transition-all cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span>+ Cadastrar Máquina</span>
+              </button>
             </div>
           ) : (
             machines.map((machine) => (
@@ -389,6 +408,11 @@ export const MachineManagement: React.FC<MachineManagementProps> = ({
                       <p className="text-sm font-bold text-[#0F172A] truncate">
                         {machine.name}
                       </p>
+                      {machine.billing_unit === 'km' && (
+                        <span className="inline-flex items-center text-[10px] text-amber-800 font-extrabold bg-[#FEF3C7] border border-[#FDE68A] px-2 py-0.5 rounded-full shrink-0">
+                          Guincho • KM
+                        </span>
+                      )}
                       {machine.active ? (
                         <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-700 font-bold bg-[#DCFCE7] px-2 py-0.5 rounded-full shrink-0">
                           <CheckCircle2 className="w-2.5 h-2.5" /> Ativa
@@ -405,7 +429,7 @@ export const MachineManagement: React.FC<MachineManagementProps> = ({
                     <div className="flex items-center gap-3 mt-1.5 text-xs text-[#0F172A]">
                       <span className="flex items-center gap-1 font-semibold text-[11px] text-[#64748B]">
                         <Clock className="w-3.5 h-3.5 text-[#F59E0B]" />
-                        {machine.current_hours}h
+                        {machine.billing_unit === 'km' ? `${machine.current_hours} km` : `${machine.current_hours}h`}
                       </span>
                       <span className="flex items-center gap-1 font-bold text-[11px] text-[#0F172A]">
                         <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
@@ -413,7 +437,7 @@ export const MachineManagement: React.FC<MachineManagementProps> = ({
                         {machine.hourly_rate?.toLocaleString('pt-BR', {
                           minimumFractionDigits: 2,
                         })}
-                        /h
+                        {machine.billing_unit === 'km' ? '/km' : '/h'}
                       </span>
                     </div>
                   </div>
@@ -439,18 +463,30 @@ export const MachineManagement: React.FC<MachineManagementProps> = ({
             <span>Carregando lista de clientes...</span>
           </div>
         ) : filteredClients.length === 0 ? (
-          <div className="py-12 text-center bg-white border border-[#E2E8F0] rounded-2xl p-6 space-y-2">
+          <div className="py-10 text-center bg-white border border-[#E2E8F0] rounded-2xl p-6 space-y-3">
             <div className="w-11 h-11 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center mx-auto">
               <Users className="w-5 h-5" />
             </div>
-            <p className="text-sm font-bold text-[#0F172A]">
-              {clientSearch ? 'Nenhum cliente encontrado' : 'Nenhum cliente cadastrado'}
-            </p>
-            <p className="text-xs text-[#64748B]">
-              {clientSearch
-                ? 'Tente outro termo de busca.'
-                : 'Toque em "+ Novo Cliente" para adicionar ou registre serviços.'}
-            </p>
+            <div>
+              <p className="text-sm font-bold text-[#0F172A]">
+                {clientSearch ? 'Nenhum cliente encontrado' : 'Nenhum item cadastrado ainda'}
+              </p>
+              <p className="text-xs text-[#64748B] mt-1">
+                {clientSearch
+                  ? 'Tente outro termo de busca.'
+                  : 'Nenhum cliente cadastrado. Adicione um cliente ou registre serviços.'}
+              </p>
+            </div>
+            {!clientSearch && (
+              <button
+                type="button"
+                onClick={openNewClientModal}
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-[#FBBF24] hover:bg-[#F59E0B] text-[#0F172A] font-extrabold text-xs rounded-xl shadow-xs transition-all cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span>+ Cadastrar Cliente</span>
+              </button>
+            )}
           </div>
         ) : (
           <div className="space-y-2">
@@ -552,6 +588,37 @@ export const MachineManagement: React.FC<MachineManagementProps> = ({
             )}
 
             <form onSubmit={handleSaveMachine} className="space-y-3.5">
+              {/* Seletor da Modalidade de Cobrança: Hora vs KM */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-[#0F172A] block">
+                  Modalidade de Cobrança
+                </label>
+                <div className="grid grid-cols-2 gap-1.5 p-1 bg-[#F1F5F9] rounded-xl border border-[#CBD5E1]">
+                  <button
+                    type="button"
+                    onClick={() => setFormBillingUnit('hour')}
+                    className={`h-9 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      formBillingUnit === 'hour'
+                        ? 'bg-white text-[#0F172A] shadow-xs'
+                        : 'text-[#64748B] hover:text-[#0F172A]'
+                    }`}
+                  >
+                    <span>⏱️ Por Hora (R$/h)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormBillingUnit('km')}
+                    className={`h-9 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      formBillingUnit === 'km'
+                        ? 'bg-white text-[#0F172A] shadow-xs'
+                        : 'text-[#64748B] hover:text-[#0F172A]'
+                    }`}
+                  >
+                    <span>🚚 Por KM (Guincho)</span>
+                  </button>
+                </div>
+              </div>
+
               <div className="space-y-1">
                 <label className="text-xs font-bold text-[#0F172A]">Nome da Máquina</label>
                 <input
@@ -559,7 +626,7 @@ export const MachineManagement: React.FC<MachineManagementProps> = ({
                   required
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
-                  placeholder="Ex: Retroescavadeira 04"
+                  placeholder={formBillingUnit === 'km' ? 'Ex: Guincho Plataforma 01' : 'Ex: Retroescavadeira 04'}
                   className="w-full h-11 px-3.5 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-sm font-medium text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
                 />
               </div>
@@ -570,32 +637,36 @@ export const MachineManagement: React.FC<MachineManagementProps> = ({
                   type="text"
                   value={formModel}
                   onChange={(e) => setFormModel(e.target.value)}
-                  placeholder="Ex: Caterpillar 416F2"
+                  placeholder={formBillingUnit === 'km' ? 'Ex: VW Delivery 11.180' : 'Ex: Caterpillar 416F2'}
                   className="w-full h-11 px-3.5 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-sm font-medium text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-[#0F172A]">Valor por hora (R$)</label>
+                  <label className="text-xs font-bold text-[#0F172A]">
+                    {formBillingUnit === 'km' ? 'Preço por KM (R$/km)' : 'Preço por Hora (R$/h)'}
+                  </label>
                   <input
                     type="text"
                     inputMode="decimal"
                     value={formRate}
                     onChange={(e) => setFormRate(e.target.value)}
-                    placeholder="160.00"
+                    placeholder={formBillingUnit === 'km' ? '8.50' : '160.00'}
                     className="w-full h-11 px-3.5 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-sm font-medium text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-[#0F172A]">Horímetro Atual</label>
+                  <label className="text-xs font-bold text-[#0F172A]">
+                    {formBillingUnit === 'km' ? 'KM Atual' : 'Horímetro Atual'}
+                  </label>
                   <input
                     type="text"
                     inputMode="decimal"
                     value={formHours}
                     onChange={(e) => setFormHours(e.target.value)}
-                    placeholder="1250"
+                    placeholder={formBillingUnit === 'km' ? '45000' : '1250'}
                     className="w-full h-11 px-3.5 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-sm font-medium text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
                   />
                 </div>

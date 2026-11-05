@@ -95,17 +95,22 @@ export const ServiceSuccess: React.FC<ServiceSuccessProps> = ({ serviceData, onB
             </div>
           </div>
 
-          {/* Item 4: Horas trabalhadas com horômetros */}
+          {/* Item 4: Horas trabalhadas ou Distância percorrida */}
           <div className="flex items-start gap-3">
             <div className="p-2 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0] text-[#0F172A] mt-0.5">
               <Clock className="w-4 h-4 text-[#0F172A]" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-[#64748B]">Horas trabalhadas</p>
+              <p className="text-xs font-medium text-[#64748B]">
+                {serviceData.billing_unit === 'km' ? 'Distância percorrida' : 'Horas trabalhadas'}
+              </p>
               <p className="text-sm font-bold text-[#0F172A]">
-                {totalHours}h{' '}
+                {serviceData.billing_unit === 'km'
+                  ? `${(serviceData.end_hours - serviceData.start_hours).toLocaleString('pt-BR')} km `
+                  : `${totalHours}h `}
                 <span className="text-xs font-normal text-[#64748B]">
-                  ({serviceData.end_hours} - {serviceData.start_hours})
+                  ({serviceData.end_hours} - {serviceData.start_hours}
+                  {serviceData.billing_unit === 'km' ? ' km' : 'h'})
                 </span>
               </p>
             </div>

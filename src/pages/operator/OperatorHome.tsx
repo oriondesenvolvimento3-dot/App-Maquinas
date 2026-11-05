@@ -277,12 +277,16 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
               </div>
             </div>
 
-            {/* Grid com Horímetro Inicial e Horário de Início */}
+            {/* Grid com Horímetro Inicial ou KM Inicial e Horário de Início */}
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-white border border-amber-200/70 rounded-xl p-3 shadow-2xs">
-                <p className="text-[11px] font-medium text-[#64748B]">Horímetro Inicial</p>
+                <p className="text-[11px] font-medium text-[#64748B]">
+                  {activeService.billing_unit === 'km' ? 'KM Inicial' : 'Horímetro Inicial'}
+                </p>
                 <p className="text-base font-extrabold text-[#0F172A]">
-                  {Number(activeService.start_hours || 0).toFixed(1)}h
+                  {activeService.billing_unit === 'km'
+                    ? `${Number(activeService.start_hours || 0).toLocaleString('pt-BR')} km`
+                    : `${Number(activeService.start_hours || 0).toFixed(1)}h`}
                 </p>
               </div>
               <div className="bg-white border border-amber-200/70 rounded-xl p-3 shadow-2xs">

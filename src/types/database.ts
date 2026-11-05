@@ -19,6 +19,8 @@ export type ScheduledServiceStatus = 'agendado' | 'em_andamento' | 'concluido' |
 
 export type ScheduledServicePeriod = 'manha' | 'tarde' | 'integral';
 
+export type BillingUnit = 'hour' | 'km';
+
 /**
  * Agendamento de serviço futuro / ordem programada na Agenda
  */
@@ -71,8 +73,9 @@ export interface Machine {
   id: string; // UUID
   name: string; // Ex: "Retroescavadeira 01"
   model: string; // Ex: "Caterpillar 416E", "JCB 3CX"
-  hourly_rate: number; // Valor cobrado por hora trabalhada (R$)
-  current_hours: number; // Horômetro atual acumulado
+  hourly_rate: number; // Valor cobrado por hora trabalhada ou por KM (R$)
+  current_hours: number; // Horômetro ou KM atual acumulado
+  billing_unit?: BillingUnit; // 'hour' (padrão) | 'km' (ex: Guincho)
   active: boolean; // Flag de ativação no sistema
   created_at?: string;
   updated_at?: string;
@@ -116,6 +119,10 @@ export interface WorkLog {
   // Campos financeiros calculados
   hourly_rate?: number;
   total_amount?: number;
+  billing_unit?: BillingUnit;
+  km_initial?: number;
+  km_final?: number;
+  total_km?: number;
 
   // Relacionamentos expandidos (JOINs no Supabase)
   machine?: Machine;
@@ -171,6 +178,10 @@ export interface OfflineWorkLog {
   end_time?: string; // Hora real de término formatada (ex: "11:45")
   hourly_rate?: number;
   total_amount?: number;
+  billing_unit?: BillingUnit;
+  km_initial?: number;
+  km_final?: number;
+  total_km?: number;
   created_at: string;
   synced_at?: string | null;
 }
@@ -211,6 +222,7 @@ export type Database = {
           model: string;
           hourly_rate: number;
           current_hours?: number;
+          billing_unit?: BillingUnit;
           active?: boolean;
           created_at?: string;
           updated_at?: string;
@@ -221,6 +233,7 @@ export type Database = {
           model?: string;
           hourly_rate?: number;
           current_hours?: number;
+          billing_unit?: BillingUnit;
           active?: boolean;
           created_at?: string;
           updated_at?: string;

@@ -11,7 +11,7 @@ import {
   type ReportItem,
 } from '../../utils/pdfGenerator';
 import { openWhatsAppShare } from '../../utils/whatsappShare';
-import { formatDateBr, formatCurrencyBRL, formatTimeHHMM } from '../../utils/formatters';
+import { formatDateBr, formatCurrencyBRL, formatTimeHHMM, formatDateISO } from '../../utils/formatters';
 import { AdminBottomNav } from '../../components/AdminBottomNav';
 import {
   Calendar,
@@ -33,6 +33,48 @@ interface AdminHistoryProps {
   onNavigateToAgenda?: () => void;
 }
 
+export type DatePreset = 'ultimos_30' | 'este_mes' | 'mes_anterior' | 'tudo';
+
+const STORAGE_KEY_START = 'retroscave_history_start_date';
+const STORAGE_KEY_END = 'retroscave_history_end_date';
+const STORAGE_KEY_CLIENT = 'retroscave_history_client';
+const STORAGE_KEY_PAYMENT = 'retroscave_history_payment';
+
+export const getDatePresetRange = (preset: DatePreset): { startDate: string; endDate: string } => {
+  const now = new Date();
+  switch (preset) {
+    case 'ultimos_30': {
+      const past30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      return {
+        startDate: formatDateISO(past30),
+        endDate: formatDateISO(now),
+      };
+    }
+    case 'este_mes': {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1);
+      const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      return {
+        startDate: formatDateISO(start),
+        endDate: formatDateISO(end),
+      };
+    }
+    case 'mes_anterior': {
+      const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const end = new Date(now.getFullYear(), now.getMonth(), 0);
+      return {
+        startDate: formatDateISO(start),
+        endDate: formatDateISO(end),
+      };
+    }
+    case 'tudo': {
+      return {
+        startDate: '',
+        endDate: '',
+      };
+    }
+  }
+};
+
 export const AdminHistory: React.FC<AdminHistoryProps> = ({
   onNavigateToDashboard,
   onNavigateToServices,
@@ -43,20 +85,81 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
   const [allServices, setAllServices] = useState<ExtendedWorkLog[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // Filtros de Período dinâmicos para o mês corrente
+  // Filtros de Período inteligentes (recuperados de sessionStorage ou Últimos 30 Dias por padrão)
   const [startDate, setStartDate] = useState<string>(() => {
-    const d = new Date();
-    return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0];
+    try {
+      const saved = sessionStorage.getItem(STORAGE_KEY_START);
+      if (saved !== null) return saved;
+    } catch {
+      // ignore
+    }
+    return getDatePresetRange('ultimos_30').startDate;
   });
+
   const [endDate, setEndDate] = useState<string>(() => {
-    const d = new Date();
-    return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().split('T')[0];
+    try {
+      const saved = sessionStorage.getItem(STORAGE_KEY_END);
+      if (saved !== null) return saved;
+    } catch {
+      // ignore
+    }
+    return getDatePresetRange('ultimos_30').endDate;
   });
-  const [selectedClient, setSelectedClient] = useState<string>('todos');
-  const [selectedPaymentStatus, setSelectedPaymentStatus] = useState<'todos' | PaymentStatus>('todos');
+
+  const [selectedClient, setSelectedClient] = useState<string>(() => {
+    try {
+      return sessionStorage.getItem(STORAGE_KEY_CLIENT) || 'todos';
+    } catch {
+      return 'todos';
+    }
+  });
+
+  const [selectedPaymentStatus, setSelectedPaymentStatus] = useState<'todos' | PaymentStatus>(() => {
+    try {
+      return (sessionStorage.getItem(STORAGE_KEY_PAYMENT) as 'todos' | PaymentStatus) || 'todos';
+    } catch {
+      return 'todos';
+    }
+  });
 
   const [pdfSuccessMessage, setPdfSuccessMessage] = useState<string | null>(null);
   const [paymentToastMessage, setPaymentToastMessage] = useState<string | null>(null);
+  const [isPdfMenuOpen, setIsPdfMenuOpen] = useState<boolean>(false);
+
+  // Persistência contínua na sessão para preservar filtros ao navegar entre telas
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(STORAGE_KEY_START, startDate);
+      sessionStorage.setItem(STORAGE_KEY_END, endDate);
+      sessionStorage.setItem(STORAGE_KEY_CLIENT, selectedClient);
+      sessionStorage.setItem(STORAGE_KEY_PAYMENT, selectedPaymentStatus);
+    } catch {
+      // ignore
+    }
+  }, [startDate, endDate, selectedClient, selectedPaymentStatus]);
+
+  // Ação ao clicar em um atalho rápido
+  const handleSelectPreset = (preset: DatePreset) => {
+    const range = getDatePresetRange(preset);
+    setStartDate(range.startDate);
+    setEndDate(range.endDate);
+  };
+
+  // Identificação do atalho atualmente ativo com base nas datas selecionadas
+  const activePreset = useMemo<DatePreset | null>(() => {
+    if (!startDate && !endDate) return 'tudo';
+
+    const u30 = getDatePresetRange('ultimos_30');
+    if (startDate === u30.startDate && endDate === u30.endDate) return 'ultimos_30';
+
+    const em = getDatePresetRange('este_mes');
+    if (startDate === em.startDate && endDate === em.endDate) return 'este_mes';
+
+    const ma = getDatePresetRange('mes_anterior');
+    if (startDate === ma.startDate && endDate === ma.endDate) return 'mes_anterior';
+
+    return null;
+  }, [startDate, endDate]);
 
   const loadHistory = useCallback(() => {
     setIsLoading(true);
@@ -171,8 +274,9 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
   };
 
   // Disparo da geração de PDF
-  const handleGeneratePdf = () => {
+  const handleGeneratePdf = (showPricing: boolean = true) => {
     if (filteredServices.length === 0) return;
+    setIsPdfMenuOpen(false);
 
     const items: ReportItem[] = filteredServices.map((s) => {
       const rate = s.hourly_rate || 0;
@@ -190,14 +294,24 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
 
     const clientTitle = selectedClient === 'todos' ? 'Todos os Clientes' : selectedClient;
 
-    generateServiceReportPdf({
-      clientName: clientTitle,
-      startDate,
-      endDate,
-      items,
-      totalHours: totalFilteredHours,
-      totalAmount: totalFilteredAmount,
-    });
+    const effectiveStartDate = startDate || (filteredServices.length > 0
+      ? filteredServices.reduce((min, s) => (s.service_date < min ? s.service_date : min), filteredServices[0].service_date)
+      : formatDateISO());
+    const effectiveEndDate = endDate || (filteredServices.length > 0
+      ? filteredServices.reduce((max, s) => (s.service_date > max ? s.service_date : max), filteredServices[0].service_date)
+      : formatDateISO());
+
+    generateServiceReportPdf(
+      {
+        clientName: clientTitle,
+        startDate: effectiveStartDate,
+        endDate: effectiveEndDate,
+        items,
+        totalHours: totalFilteredHours,
+        totalAmount: totalFilteredAmount,
+      },
+      showPricing
+    );
 
     setPdfSuccessMessage('Relatório PDF gerado e baixado com sucesso!');
     setTimeout(() => setPdfSuccessMessage(null), 4000);
@@ -206,7 +320,13 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
   // Disparo do compartilhamento WhatsApp
   const handleShareWhatsApp = () => {
     const clientTitle = selectedClient === 'todos' ? 'Cliente' : selectedClient;
-    const periodStr = `${formatDateBr(startDate)} a ${formatDateBr(endDate)}`;
+    const periodStr = startDate && endDate
+      ? `${formatDateBr(startDate)} a ${formatDateBr(endDate)}`
+      : startDate
+      ? `A partir de ${formatDateBr(startDate)}`
+      : endDate
+      ? `Até ${formatDateBr(endDate)}`
+      : 'Histórico Geral Completo';
     openWhatsAppShare(clientTitle, periodStr, totalFilteredHours, totalFilteredAmount);
   };
 
@@ -219,7 +339,7 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
           <span>{formatTimeHHMM()}</span>
           <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#64748B]">
             <Calendar className="w-3.5 h-3.5 text-[#F59E0B]" />
-            <span>Fechamento Mensal</span>
+            <span>Gestão Financeira</span>
           </div>
         </div>
 
@@ -232,10 +352,78 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
 
         {/* 2. BARRA DE FILTROS: PERÍODO E CLIENTE */}
         <div className="mt-3.5 space-y-2.5">
+          {/* Barra de Atalhos Rápidos de Período (Pills / Botões) */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[10px] font-bold text-[#64748B] uppercase tracking-wider">
+                Atalhos de Período:
+              </span>
+              {activePreset && (
+                <span className="text-[10px] font-semibold text-[#059669] flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#10B981]" />
+                  {activePreset === 'ultimos_30' && 'Últimos 30 dias'}
+                  {activePreset === 'este_mes' && 'Mês atual'}
+                  {activePreset === 'mes_anterior' && 'Mês anterior'}
+                  {activePreset === 'tudo' && 'Todo o histórico'}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5 -mx-1 px-1">
+              <button
+                type="button"
+                id="preset-btn-ultimos-30"
+                onClick={() => handleSelectPreset('ultimos_30')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 border ${
+                  activePreset === 'ultimos_30'
+                    ? 'bg-[#0F172A] text-[#FBBF24] border-[#0F172A] shadow-xs'
+                    : 'bg-[#F8FAFC] text-[#475569] border-[#E2E8F0] hover:bg-[#F1F5F9] hover:text-[#0F172A]'
+                }`}
+              >
+                Últimos 30 Dias
+              </button>
+              <button
+                type="button"
+                id="preset-btn-este-mes"
+                onClick={() => handleSelectPreset('este_mes')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 border ${
+                  activePreset === 'este_mes'
+                    ? 'bg-[#0F172A] text-[#FBBF24] border-[#0F172A] shadow-xs'
+                    : 'bg-[#F8FAFC] text-[#475569] border-[#E2E8F0] hover:bg-[#F1F5F9] hover:text-[#0F172A]'
+                }`}
+              >
+                Este Mês
+              </button>
+              <button
+                type="button"
+                id="preset-btn-mes-anterior"
+                onClick={() => handleSelectPreset('mes_anterior')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 border ${
+                  activePreset === 'mes_anterior'
+                    ? 'bg-[#0F172A] text-[#FBBF24] border-[#0F172A] shadow-xs'
+                    : 'bg-[#F8FAFC] text-[#475569] border-[#E2E8F0] hover:bg-[#F1F5F9] hover:text-[#0F172A]'
+                }`}
+              >
+                Mês Anterior
+              </button>
+              <button
+                type="button"
+                id="preset-btn-tudo"
+                onClick={() => handleSelectPreset('tudo')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 border ${
+                  activePreset === 'tudo'
+                    ? 'bg-[#0F172A] text-[#FBBF24] border-[#0F172A] shadow-xs'
+                    : 'bg-[#F8FAFC] text-[#475569] border-[#E2E8F0] hover:bg-[#F1F5F9] hover:text-[#0F172A]'
+                }`}
+              >
+                Tudo
+              </button>
+            </div>
+          </div>
+
           {/* Datas Início e Fim */}
           <div className="grid grid-cols-2 gap-2.5">
             <div>
-              <label className="text-[10px] font-bold text-[#64748B] block mb-1 uppercase tracking-wider">
+              <label htmlFor="input-start-date" className="text-[10px] font-bold text-[#64748B] block mb-1 uppercase tracking-wider">
                 De:
               </label>
               <input
@@ -247,7 +435,7 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
               />
             </div>
             <div>
-              <label className="text-[10px] font-bold text-[#64748B] block mb-1 uppercase tracking-wider">
+              <label htmlFor="input-end-date" className="text-[10px] font-bold text-[#64748B] block mb-1 uppercase tracking-wider">
                 Até:
               </label>
               <input
@@ -376,9 +564,22 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
           {isLoading ? (
             <div className="py-8 text-center text-xs text-[#64748B]">Carregando histórico...</div>
           ) : filteredServices.length === 0 ? (
-            <div className="py-8 text-center bg-white border border-[#E2E8F0] rounded-2xl p-6">
-              <p className="text-sm font-bold text-[#0F172A]">Nenhum registro encontrado.</p>
-              <p className="text-xs text-[#64748B] mt-1">Ajuste o intervalo de datas ou cliente.</p>
+            <div className="py-8 text-center bg-white border border-[#E2E8F0] rounded-2xl p-6 space-y-3">
+              <div>
+                <p className="text-sm font-bold text-[#0F172A]">Nenhum item cadastrado ainda</p>
+                <p className="text-xs text-[#64748B] mt-1">
+                  Nenhum registro encontrado. Ajuste os filtros ou cadastre novos serviços.
+                </p>
+              </div>
+              {onNavigateToAgenda && (
+                <button
+                  type="button"
+                  onClick={onNavigateToAgenda}
+                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-[#FBBF24] hover:bg-[#F59E0B] text-[#0F172A] font-extrabold text-xs rounded-xl shadow-xs transition-all cursor-pointer"
+                >
+                  <span>+ Cadastrar na Agenda</span>
+                </button>
+              )}
             </div>
           ) : (
             filteredServices.map((service) => (
@@ -434,30 +635,85 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
       </main>
 
       {/* 4. BARRA DE AÇÕES RÁPIDAS (GERAR PDF E WHATSAPP) */}
-      <div className="fixed bottom-14 left-0 right-0 max-w-md mx-auto px-6 py-2.5 bg-white/95 backdrop-blur-xs border-t border-[#E2E8F0] z-20 flex items-center gap-2.5">
-        {/* Botão Gerar PDF */}
-        <button
-          id="btn-generate-pdf"
-          type="button"
-          onClick={handleGeneratePdf}
-          disabled={filteredServices.length === 0}
-          className="flex-1 h-12 bg-[#0F172A] hover:bg-[#1E293B] active:scale-[0.98] text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <FileDown className="w-4 h-4 text-[#FBBF24]" />
-          <span>Gerar PDF</span>
-        </button>
+      <div className="fixed bottom-14 left-0 right-0 max-w-md mx-auto px-6 py-2.5 bg-white/95 backdrop-blur-xs border-t border-[#E2E8F0] z-20 flex flex-col gap-2">
+        {isPdfMenuOpen && (
+          <div
+            role="menu"
+            aria-label="Opções de exportação do relatório PDF"
+            className="p-2 bg-white border border-[#CBD5E1] rounded-xl shadow-lg space-y-1.5 animate-fade-in"
+          >
+            <p className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#64748B]">
+              Formato do Relatório PDF:
+            </p>
+            <button
+              id="btn-report-pdf-with-pricing"
+              type="button"
+              role="menuitem"
+              onClick={() => handleGeneratePdf(true)}
+              className="w-full p-2.5 rounded-lg hover:bg-amber-50/70 active:bg-amber-100/60 border border-transparent hover:border-amber-200 flex items-center gap-3 text-left transition-all cursor-pointer"
+            >
+              <div className="w-8 h-8 rounded-lg bg-[#FEF3C7] text-[#B45309] flex items-center justify-center shrink-0">
+                <DollarSign className="w-4 h-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-extrabold text-[#0F172A]">
+                  Com Valores (Completo)
+                </p>
+                <p className="text-[11px] text-[#64748B] truncate">
+                  Inclui tarifas e total ({formatCurrencyBRL(totalFilteredAmount)})
+                </p>
+              </div>
+            </button>
 
-        {/* Botão Enviar WhatsApp */}
-        <button
-          id="btn-share-whatsapp"
-          type="button"
-          onClick={handleShareWhatsApp}
-          disabled={filteredServices.length === 0}
-          className="flex-1 h-12 bg-[#16A34A] hover:bg-[#15803D] active:scale-[0.98] text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <MessageCircle className="w-4 h-4 fill-white" />
-          <span>WhatsApp</span>
-        </button>
+            <button
+              id="btn-report-pdf-without-pricing"
+              type="button"
+              role="menuitem"
+              onClick={() => handleGeneratePdf(false)}
+              className="w-full p-2.5 rounded-lg hover:bg-slate-100 active:bg-slate-200/70 border border-transparent hover:border-slate-200 flex items-center gap-3 text-left transition-all cursor-pointer"
+            >
+              <div className="w-8 h-8 rounded-lg bg-slate-100 text-[#0F172A] flex items-center justify-center shrink-0">
+                <Clock className="w-4 h-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-extrabold text-[#0F172A]">
+                  Sem Valores (Apenas Horas)
+                </p>
+                <p className="text-[11px] text-[#64748B] truncate">
+                  Exibe apenas horímetros e total de horas ({totalFilteredHours}h)
+                </p>
+              </div>
+            </button>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2.5">
+          {/* Botão Gerar PDF */}
+          <button
+            id="btn-generate-pdf"
+            type="button"
+            aria-expanded={isPdfMenuOpen}
+            aria-haspopup="menu"
+            onClick={() => setIsPdfMenuOpen((prev) => !prev)}
+            disabled={filteredServices.length === 0}
+            className="flex-1 h-12 bg-[#0F172A] hover:bg-[#1E293B] active:scale-[0.98] text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <FileDown className="w-4 h-4 text-[#FBBF24]" />
+            <span>Gerar PDF</span>
+          </button>
+
+          {/* Botão Enviar WhatsApp */}
+          <button
+            id="btn-share-whatsapp"
+            type="button"
+            onClick={handleShareWhatsApp}
+            disabled={filteredServices.length === 0}
+            className="flex-1 h-12 bg-[#16A34A] hover:bg-[#15803D] active:scale-[0.98] text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <MessageCircle className="w-4 h-4 fill-white" />
+            <span>WhatsApp</span>
+          </button>
+        </div>
       </div>
 
       {/* 5. BARRA INFERIOR (BOTTOM NAVIGATION) */}

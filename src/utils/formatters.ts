@@ -19,6 +19,16 @@ export function formatDateBr(dateStr?: string | null): string {
 }
 
 /**
+ * Converte um objeto Date para formato YYYY-MM-DD usando o fuso horário local (sem desvio UTC).
+ */
+export function formatDateISO(date: Date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
  * Formata um horário (HH:mm, timestamp ISO ou objeto Date) para o padrão curto "HH:mm".
  * Quando chamado sem argumentos (`formatTimeHHMM()`), retorna a hora atual.
  */

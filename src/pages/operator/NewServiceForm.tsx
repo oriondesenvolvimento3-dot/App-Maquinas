@@ -75,8 +75,11 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
       return;
     }
 
+    const selectedMachine = machines.find((m) => m.id === selectedMachineId);
+    const isKm = selectedMachine?.billing_unit === 'km';
+
     if (isNaN(numStart) || numStart < 0) {
-      setErrorMessage('Informe um horímetro inicial válido.');
+      setErrorMessage(isKm ? 'Informe a quilometragem inicial válida.' : 'Informe um horímetro inicial válido.');
       return;
     }
 
@@ -90,10 +93,12 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
 
     const payload: StartServiceFormData = {
       machine_id: selectedMachineId,
-      machine_name: selectedMachineName || 'Retroescavadeira',
+      machine_name: selectedMachineName || (isKm ? 'Guincho' : 'Retroescavadeira'),
       operator_id: operatorId,
       operator_name: operatorName,
       start_hours: numStart,
+      billing_unit: isKm ? 'km' : 'hour',
+      km_initial: isKm ? numStart : undefined,
     };
 
     setIsSubmitting(true);
@@ -111,6 +116,9 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
       setIsSubmitting(false);
     }
   };
+
+  const selectedMachine = machines.find((m) => m.id === selectedMachineId);
+  const isKm = selectedMachine?.billing_unit === 'km';
 
   return (
     <div className="relative flex flex-col justify-between w-full max-w-md mx-auto min-h-screen bg-[#F8FAFC] shadow-2xl">
@@ -152,7 +160,15 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
         <div className="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-4 text-[#92400E] flex items-start gap-3">
           <CheckCircle2 className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
           <p className="text-xs leading-relaxed">
-            Selecione o equipamento e confira o <strong>horímetro inicial</strong>. Os detalhes do cliente e horas trabalhadas serão preenchidos ao finalizar o serviço.
+            {isKm ? (
+              <>
+                Selecione o equipamento e confira a <strong>quilometragem inicial (KM)</strong>. Os detalhes do cliente e distância percorrida serão preenchidos ao finalizar o serviço.
+              </>
+            ) : (
+              <>
+                Selecione o equipamento e confira o <strong>horímetro inicial</strong>. Os detalhes do cliente e horas trabalhadas serão preenchidos ao finalizar o serviço.
+              </>
+            )}
           </p>
         </div>
 
@@ -164,7 +180,7 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
               className="flex items-center gap-1.5 text-xs font-bold text-[#0F172A] uppercase tracking-wider"
             >
               <Truck className="w-4 h-4 text-[#F59E0B]" />
-              <span>Máquina *</span>
+              <span>Máquina / Veículo *</span>
             </label>
 
             {isLoadingMachines ? (
@@ -187,7 +203,7 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
                 >
                   {machines.map((m) => (
                     <option key={m.id} value={m.id}>
-                      {m.name} {m.model ? `(${m.model})` : ''}
+                      {m.name} {m.model ? `(${m.model})` : ''} {m.billing_unit === 'km' ? '• Guincho (KM)' : ''}
                     </option>
                   ))}
                 </select>
@@ -200,7 +216,7 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
             )}
           </div>
 
-          {/* Campo 2: Horímetro Inicial */}
+          {/* Campo 2: Horímetro Inicial ou KM Inicial */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <label
@@ -208,10 +224,10 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
                 className="flex items-center gap-1.5 text-xs font-bold text-[#0F172A] uppercase tracking-wider"
               >
                 <Clock className="w-4 h-4 text-[#F59E0B]" />
-                <span>Horímetro Inicial (h) *</span>
+                <span>{isKm ? 'KM Inicial (km) *' : 'Horímetro Inicial (h) *'}</span>
               </label>
               <span className="text-[11px] font-medium text-slate-500">
-                Valor do painel
+                {isKm ? 'Hodômetro do painel' : 'Valor do painel'}
               </span>
             </div>
 
@@ -219,20 +235,22 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
               <input
                 id="start_hours"
                 type="number"
-                step="0.1"
+                step={isKm ? '1' : '0.1'}
                 min="0"
-                placeholder="Ex: 1450.5"
+                placeholder={isKm ? 'Ex: 45200' : 'Ex: 1450.5'}
                 value={startHours}
                 onChange={(e) => setStartHours(e.target.value)}
                 className="w-full h-12 px-4 rounded-xl border border-[#CBD5E1] bg-white text-base font-bold text-[#0F172A] placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#FBBF24] focus:border-transparent transition-all shadow-sm"
                 required
               />
               <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
-                HORAS
+                {isKm ? 'KM' : 'HORAS'}
               </span>
             </div>
             <p className="text-[11px] text-slate-500">
-              O sistema preenche automaticamente com o último horímetro registrado. Ajuste se necessário.
+              {isKm
+                ? 'O sistema preenche automaticamente com o último KM registrado. Ajuste se necessário.'
+                : 'O sistema preenche automaticamente com o último horímetro registrado. Ajuste se necessário.'}
             </p>
           </div>
         </form>

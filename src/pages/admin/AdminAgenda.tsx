@@ -1237,16 +1237,26 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
            * ========================================================= */
           <div className="space-y-3">
             {filteredListSchedules.length === 0 ? (
-              <div className="py-10 text-center bg-white border border-[#E2E8F0] rounded-2xl p-6 space-y-2">
+              <div className="py-10 text-center bg-white border border-[#E2E8F0] rounded-2xl p-6 space-y-3">
                 <div className="w-11 h-11 rounded-full bg-[#FEF3C7] text-[#B45309] flex items-center justify-center mx-auto">
                   <Calendar className="w-5 h-5" />
                 </div>
-                <p className="text-sm font-bold text-[#0F172A]">
-                  Nenhum agendamento encontrado
-                </p>
-                <p className="text-xs text-[#64748B]">
-                  Toque em &quot;Novo Agendamento&quot; para programar um serviço.
-                </p>
+                <div>
+                  <p className="text-sm font-bold text-[#0F172A]">
+                    Nenhum item cadastrado ainda
+                  </p>
+                  <p className="text-xs text-[#64748B] mt-1">
+                    Nenhum agendamento encontrado. Programe o primeiro serviço na agenda.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleOpenNewModal(selectedDate)}
+                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-[#FBBF24] hover:bg-[#F59E0B] text-[#0F172A] font-extrabold text-xs rounded-xl shadow-xs transition-all cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                  <span>+ Cadastrar Agendamento</span>
+                </button>
               </div>
             ) : (
               filteredListSchedules.map((item) => {

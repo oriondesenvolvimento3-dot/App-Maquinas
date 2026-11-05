@@ -11,6 +11,7 @@ export interface ReportItem {
   totalHours: number;
   hourlyRate: number;
   subtotal: number;
+  billing_unit?: 'hour' | 'km';
 }
 
 export interface ReportData {
@@ -21,6 +22,12 @@ export interface ReportData {
   items: ReportItem[];
   totalHours: number;
   totalAmount: number;
+  showPricing?: boolean;
+}
+
+export interface PdfExportOptions {
+  showPricing?: boolean;
+  includeValues?: boolean;
 }
 
 const formatCurrency = (val: number): string => formatCurrencyBRL(val);
@@ -28,7 +35,18 @@ const formatCurrency = (val: number): string => formatCurrencyBRL(val);
 /**
  * Gera documento PDF profissional A4 para prestação de contas e faturamento de maquinário
  */
-export function generateServiceReportPdf(reportData: ReportData): void {
+export function generateServiceReportPdf(
+  reportData: ReportData,
+  optionsOrShowPricing: boolean | PdfExportOptions = true
+): void {
+  const showPricing =
+    typeof optionsOrShowPricing === 'boolean'
+      ? optionsOrShowPricing
+      : optionsOrShowPricing?.showPricing ??
+        optionsOrShowPricing?.includeValues ??
+        reportData.showPricing ??
+        true;
+
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -105,41 +123,75 @@ export function generateServiceReportPdf(reportData: ReportData): void {
   doc.text(issueDateFormatted, 155, 50);
 
   // 4. TABELA DISCRIMINADA DE SERVIÇOS
-  const tableRows = reportData.items.map((item) => [
-    formatDateBr(item.date),
-    item.machine,
-    item.operator,
-    `${item.startHours}h`,
-    `${item.endHours}h`,
-    `${item.totalHours}h`,
-    formatCurrency(item.hourlyRate),
-    formatCurrency(item.subtotal),
-  ]);
+  const tableRows = reportData.items.map((item) => {
+    const unitSuffix = item.billing_unit === 'km' ? ' km' : 'h';
+    return showPricing
+      ? [
+          formatDateBr(item.date),
+          item.machine,
+          item.operator,
+          `${item.startHours}${unitSuffix}`,
+          `${item.endHours}${unitSuffix}`,
+          `${item.totalHours}${unitSuffix}`,
+          formatCurrency(item.hourlyRate),
+          formatCurrency(item.subtotal),
+        ]
+      : [
+          formatDateBr(item.date),
+          item.machine,
+          item.operator,
+          `${item.startHours}${unitSuffix}`,
+          `${item.endHours}${unitSuffix}`,
+          `${item.totalHours}${unitSuffix}`,
+        ];
+  });
 
   autoTable(doc, {
     startY: 65,
     margin: { left: 14, right: 14 },
-    head: [[
-      'Data',
-      'Máquina',
-      'Operador',
-      'Horím. Inicial',
-      'Horím. Final',
-      'Horas',
-      'Tarifa/h',
-      'Subtotal',
-    ]],
+    head: [
+      showPricing
+        ? [
+            'Data',
+            'Máquina',
+            'Operador',
+            'Horím. Inicial',
+            'Horím. Final',
+            'Horas',
+            'Tarifa/h',
+            'Subtotal',
+          ]
+        : [
+            'Data',
+            'Máquina',
+            'Operador',
+            'Horím. Inicial',
+            'Horím. Final',
+            'Horas Trabalhadas',
+          ],
+    ],
     body: tableRows,
-    foot: [[
-      '',
-      '',
-      '',
-      '',
-      'TOTAL GERAL:',
-      `${reportData.totalHours}h`,
-      '',
-      formatCurrency(reportData.totalAmount),
-    ]],
+    foot: [
+      showPricing
+        ? [
+            '',
+            '',
+            '',
+            '',
+            'TOTAL GERAL:',
+            `${reportData.totalHours}h`,
+            '',
+            formatCurrency(reportData.totalAmount),
+          ]
+        : [
+            '',
+            '',
+            '',
+            '',
+            'TOTAL DE HORAS:',
+            `${reportData.totalHours}h`,
+          ],
+    ],
     theme: 'grid',
     headStyles: {
       fillColor: [15, 23, 42], // #0F172A
@@ -164,16 +216,25 @@ export function generateServiceReportPdf(reportData: ReportData): void {
       fontSize: 9,
       cellPadding: 3,
     },
-    columnStyles: {
-      0: { cellWidth: 20 },
-      1: { cellWidth: 35 },
-      2: { cellWidth: 30 },
-      3: { cellWidth: 20, halign: 'right' },
-      4: { cellWidth: 20, halign: 'right' },
-      5: { cellWidth: 15, halign: 'right', fontStyle: 'bold' },
-      6: { cellWidth: 20, halign: 'right' },
-      7: { cellWidth: 22, halign: 'right', fontStyle: 'bold' },
-    },
+    columnStyles: showPricing
+      ? {
+          0: { cellWidth: 20 },
+          1: { cellWidth: 35 },
+          2: { cellWidth: 30 },
+          3: { cellWidth: 20, halign: 'right' },
+          4: { cellWidth: 20, halign: 'right' },
+          5: { cellWidth: 15, halign: 'right', fontStyle: 'bold' },
+          6: { cellWidth: 20, halign: 'right' },
+          7: { cellWidth: 22, halign: 'right', fontStyle: 'bold' },
+        }
+      : {
+          0: { cellWidth: 24 },
+          1: { cellWidth: 50 },
+          2: { cellWidth: 42 },
+          3: { cellWidth: 22, halign: 'right' },
+          4: { cellWidth: 22, halign: 'right' },
+          5: { cellWidth: 22, halign: 'right', fontStyle: 'bold' },
+        },
   });
 
   // 5. RODAPÉ COM TERMOS E ASSINATURA
@@ -253,10 +314,25 @@ export function generateSingleServiceReceiptPdf(
     observations?: string | null;
     hourly_rate?: number;
     total_amount?: number;
+    billing_unit?: 'hour' | 'km';
+    showPricing?: boolean;
+    includeValues?: boolean;
   },
   appliedHourlyRate?: number,
-  appliedTotalAmount?: number
+  appliedTotalAmount?: number,
+  optionsOrShowPricing: boolean | PdfExportOptions = true
 ): void {
+  const showPricing =
+    typeof optionsOrShowPricing === 'boolean'
+      ? optionsOrShowPricing
+      : optionsOrShowPricing?.showPricing ??
+        optionsOrShowPricing?.includeValues ??
+        service.showPricing ??
+        service.includeValues ??
+        true;
+
+  const isKm = service.billing_unit === 'km';
+
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -266,7 +342,7 @@ export function generateSingleServiceReceiptPdf(
   const pageWidth = doc.internal.pageSize.getWidth(); // 148 mm
   const client = (service.client_name || service.clientName || 'Cliente').trim();
   const phone = service.client_phone || service.clientPhone || null;
-  const machine = (service.machine_name || service.machineName || 'Retroescavadeira').trim();
+  const machine = (service.machine_name || service.machineName || (isKm ? 'Guincho' : 'Retroescavadeira')).trim();
   const operator = (service.operator_name || service.operatorName || 'Operador').trim();
   const dateStr = service.service_date || service.serviceDate || new Date().toISOString().split('T')[0];
   const start = Number(service.start_hours ?? service.startHours ?? 0);
@@ -295,7 +371,13 @@ export function generateSingleServiceReceiptPdf(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.5);
   doc.setTextColor(15, 23, 42);
-  doc.text('COMPROVANTE DE PRESTAÇÃO DE SERVIÇO', 10, 27);
+  doc.text(
+    showPricing
+      ? (isKm ? 'COMPROVANTE DE PRESTAÇÃO DE SERVIÇO (GUINCHO)' : 'COMPROVANTE DE PRESTAÇÃO DE SERVIÇO')
+      : (isKm ? 'COMPROVANTE OPERACIONAL DE QUILOMETRAGEM' : 'COMPROVANTE OPERACIONAL DE HORAS TRABALHADAS'),
+    10,
+    27
+  );
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7);
@@ -341,28 +423,49 @@ export function generateSingleServiceReceiptPdf(
   doc.text(formatDateBr(dateStr), pageWidth - 14, 46, { align: 'right' });
 
   // 4. TABELA DISCRIMINADA DO SERVIÇO
+  const unitSuffix = isKm ? ' km' : 'h';
   autoTable(doc, {
     startY: 54,
     margin: { left: 10, right: 10 },
     theme: 'plain',
-    head: [[
-      'Equipamento',
-      'Operador',
-      'Horím. Inicial',
-      'Horím. Final',
-      'Horas',
-      'Tarifa/h',
-      'Total',
-    ]],
-    body: [[
-      machine,
-      operator,
-      `${start}h`,
-      `${end}h`,
-      `${hours}h`,
-      formatCurrency(rate),
-      formatCurrency(total),
-    ]],
+    head: [
+      showPricing
+        ? [
+            'Equipamento',
+            'Operador',
+            isKm ? 'KM Inicial' : 'Horím. Inicial',
+            isKm ? 'KM Final' : 'Horím. Final',
+            isKm ? 'Distância' : 'Horas',
+            isKm ? 'Tarifa/km' : 'Tarifa/h',
+            'Total',
+          ]
+        : [
+            'Equipamento',
+            'Operador',
+            isKm ? 'KM Inicial' : 'Horím. Inicial',
+            isKm ? 'KM Final' : 'Horím. Final',
+            isKm ? 'Distância Percorrida' : 'Horas Trabalhadas',
+          ],
+    ],
+    body: [
+      showPricing
+        ? [
+            machine,
+            operator,
+            `${start}${unitSuffix}`,
+            `${end}${unitSuffix}`,
+            `${hours}${unitSuffix}`,
+            formatCurrency(rate),
+            formatCurrency(total),
+          ]
+        : [
+            machine,
+            operator,
+            `${start}${unitSuffix}`,
+            `${end}${unitSuffix}`,
+            `${hours}${unitSuffix}`,
+          ],
+    ],
     headStyles: {
       fillColor: [15, 23, 42],
       textColor: [255, 255, 255],
@@ -376,44 +479,69 @@ export function generateSingleServiceReceiptPdf(
       fontSize: 7.5,
       cellPadding: 3,
     },
-    columnStyles: {
-      0: { cellWidth: 32 },
-      1: { cellWidth: 26 },
-      2: { cellWidth: 15, halign: 'right' },
-      3: { cellWidth: 15, halign: 'right' },
-      4: { cellWidth: 12, halign: 'right', fontStyle: 'bold' },
-      5: { cellWidth: 14, halign: 'right' },
-      6: { cellWidth: 14, halign: 'right', fontStyle: 'bold' },
-    },
+    columnStyles: showPricing
+      ? {
+          0: { cellWidth: 32 },
+          1: { cellWidth: 26 },
+          2: { cellWidth: 15, halign: 'right' },
+          3: { cellWidth: 15, halign: 'right' },
+          4: { cellWidth: 12, halign: 'right', fontStyle: 'bold' },
+          5: { cellWidth: 14, halign: 'right' },
+          6: { cellWidth: 14, halign: 'right', fontStyle: 'bold' },
+        }
+      : {
+          0: { cellWidth: 42 },
+          1: { cellWidth: 32 },
+          2: { cellWidth: 18, halign: 'right' },
+          3: { cellWidth: 18, halign: 'right' },
+          4: { cellWidth: 18, halign: 'right', fontStyle: 'bold' },
+        },
   });
 
   const tableEndY = (doc as any).lastAutoTable?.finalY || 85;
 
-  // 5. DESTAQUE DO VALOR TOTAL A ACERTAR
+  // 5. DESTAQUE DO TOTAL (COM OU SEM VALORES FINANCEIROS)
   const totalBoxY = tableEndY + 5;
-  doc.setFillColor(254, 243, 199); // #FEF3C7
-  doc.roundedRect(10, totalBoxY, pageWidth - 20, 15, 2, 2, 'F');
-  doc.setDrawColor(245, 158, 11); // #F59E0B
-  doc.roundedRect(10, totalBoxY, pageWidth - 20, 15, 2, 2, 'S');
+  if (showPricing) {
+    doc.setFillColor(254, 243, 199); // #FEF3C7
+    doc.roundedRect(10, totalBoxY, pageWidth - 20, 15, 2, 2, 'F');
+    doc.setDrawColor(245, 158, 11); // #F59E0B
+    doc.roundedRect(10, totalBoxY, pageWidth - 20, 15, 2, 2, 'S');
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8);
-  doc.setTextColor(180, 83, 9); // #B45309
-  doc.text('TOTAL DE HORAS:', 15, totalBoxY + 6);
-  doc.text('VALOR TOTAL A ACERTAR:', 15, totalBoxY + 11.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(180, 83, 9); // #B45309
+    doc.text(isKm ? 'DISTÂNCIA PERCORRIDA:' : 'TOTAL DE HORAS:', 15, totalBoxY + 6);
+    doc.text('VALOR TOTAL A ACERTAR:', 15, totalBoxY + 11.5);
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
-  doc.setTextColor(15, 23, 42);
-  doc.text(`${hours} horas`, 45, totalBoxY + 6);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`${hours} ${isKm ? 'km' : 'horas'}`, isKm ? 55 : 45, totalBoxY + 6);
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.setTextColor(15, 23, 42);
-  doc.text(formatCurrency(total), pageWidth - 15, totalBoxY + 10, { align: 'right' });
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(15, 23, 42);
+    doc.text(formatCurrency(total), pageWidth - 15, totalBoxY + 10, { align: 'right' });
+  } else {
+    doc.setFillColor(248, 250, 252); // #F8FAFC
+    doc.roundedRect(10, totalBoxY, pageWidth - 20, 11, 2, 2, 'F');
+    doc.setDrawColor(203, 213, 225); // #CBD5E1
+    doc.roundedRect(10, totalBoxY, pageWidth - 20, 11, 2, 2, 'S');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(71, 85, 105); // #475569
+    doc.text(isKm ? 'DISTÂNCIA TOTAL PERCORRIDA:' : 'TOTAL DE HORAS TRABALHADAS:', 15, totalBoxY + 7);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`${hours} ${isKm ? 'km' : 'horas'}`, pageWidth - 15, totalBoxY + 7, { align: 'right' });
+  }
 
   // 6. OBSERVAÇÕES
-  let currentY = totalBoxY + 20;
+  let currentY = totalBoxY + (showPricing ? 20 : 16);
   if (obs) {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7);
@@ -435,7 +563,9 @@ export function generateSingleServiceReceiptPdf(
   doc.setFontSize(6.5);
   doc.setTextColor(100, 116, 139);
   doc.text(
-    'Atesto que o maquinário acima discriminado trabalhou no local e horímetro apurados.',
+    isKm
+      ? 'Atesto que o veículo acima discriminado executou o percurso e quilometragem apurados.'
+      : 'Atesto que o maquinário acima discriminado trabalhou no local e horímetro apurados.',
     10,
     signatureY - 4
   );

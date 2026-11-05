@@ -7,8 +7,33 @@ import type {
   Client,
   WorkLogStatus,
   PaymentStatus,
+  BillingUnit,
   OfflineWorkLog,
 } from '../types/database';
+
+const MACHINE_BILLING_UNITS_KEY = 'retroscave_machine_billing_units_v1';
+
+export function getStoredMachineBillingUnits(): Record<string, BillingUnit> {
+  if (typeof window === 'undefined' || !window.localStorage) return {};
+  try {
+    const raw = window.localStorage.getItem(MACHINE_BILLING_UNITS_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) || {};
+  } catch {
+    return {};
+  }
+}
+
+export function setStoredMachineBillingUnit(machineId: string, unit: BillingUnit): void {
+  if (!machineId || typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    const map = getStoredMachineBillingUnits();
+    map[machineId] = unit;
+    window.localStorage.setItem(MACHINE_BILLING_UNITS_KEY, JSON.stringify(map));
+  } catch {
+    // Ignore storage errors
+  }
+}
 
 export interface AdminMetrics {
   totalServices: number;
@@ -41,6 +66,10 @@ export interface ExtendedWorkLog {
   end_time?: string;
   hourly_rate?: number;
   total_amount?: number;
+  billing_unit?: BillingUnit;
+  km_initial?: number;
+  km_final?: number;
+  total_km?: number;
   created_at: string;
 }
 
@@ -53,6 +82,10 @@ export interface AdminWorkLogUpdatePayload {
   start_hours: number;
   end_hours: number;
   hourly_rate: number;
+  billing_unit?: BillingUnit;
+  km_initial?: number;
+  km_final?: number;
+  total_km?: number;
   observations?: string | null;
   payment_status?: PaymentStatus;
 }
@@ -145,6 +178,7 @@ export async function fetchAdminWorkLogs(
     typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
 
   let resultLogs: ExtendedWorkLog[] = [];
+  let fetchedFromSupabase = false;
 
   if (online) {
     try {
@@ -161,101 +195,116 @@ export async function fetchAdminWorkLogs(
 
       if (error) {
         console.error('[Supabase fetchAdminWorkLogs Error]:', error);
-      } else if (data && data.length > 0) {
-        // Carrega máquinas e perfis locais ou do Dexie para resolver machine_name e hourly_rate
-        let cachedMachines = await db.cached_machines.toArray();
-        const machineIds = new Set(data.map((item: any) => item.machine_id));
-        const missingMachine = Array.from(machineIds).some(
-          (id) => !cachedMachines.some((m) => m.id === id)
-        );
-        if (missingMachine || cachedMachines.length === 0) {
-          const { data: remoteMachines } = await supabase.from('machines').select('*');
-          if (remoteMachines) {
-            await db.cached_machines.bulkPut(remoteMachines as Machine[]);
-            cachedMachines = remoteMachines as Machine[];
-          }
-        }
-        const machineMap = new Map(cachedMachines.map((m) => [m.id, m]));
-
-        let cachedProfiles = await db.cached_profiles.toArray();
-        const profileIds = new Set(data.map((item: any) => item.operator_id));
-        const missingProfile = Array.from(profileIds).some(
-          (id) => !cachedProfiles.some((p) => p.id === id)
-        );
-        if (missingProfile || cachedProfiles.length === 0) {
-          const { data: remoteProfiles } = await supabase.from('profiles').select('*');
-          if (remoteProfiles) {
-            await db.cached_profiles.bulkPut(remoteProfiles);
-            cachedProfiles = remoteProfiles;
-          }
-        }
-        const profileMap = new Map(cachedProfiles.map((p) => [p.id, p]));
-        const allLocalLogs = await db.offline_work_logs.toArray();
-        const localByServerId = new Map(
-          allLocalLogs.filter((l) => l.server_id).map((l) => [l.server_id!, l])
-        );
-
-        resultLogs = data.map((item: any) => {
-          const machine = machineMap.get(item.machine_id);
-          const profile = profileMap.get(item.operator_id);
-          const localMatch = localByServerId.get(item.id);
-
-          const rate = Number(
-            item.hourly_rate ?? localMatch?.hourly_rate ?? machine?.hourly_rate ?? 0
+      } else if (data !== null) {
+        fetchedFromSupabase = true;
+        if (data.length > 0) {
+          // Carrega máquinas e perfis locais ou do Dexie para resolver machine_name e hourly_rate
+          let cachedMachines = await db.cached_machines.toArray();
+          const machineIds = new Set(data.map((item: any) => item.machine_id));
+          const missingMachine = Array.from(machineIds).some(
+            (id) => !cachedMachines.some((m) => m.id === id)
           );
-          const rawHours = Number(item.total_hours ?? 0);
-          const startH = Number(item.start_hours ?? 0);
-          const endH = Number(item.end_hours ?? 0);
-          const totalHours =
-            rawHours > 0 ? rawHours : calculateTotalHours(startH, endH);
-          const totalAmount =
-            item.total_amount !== undefined && Number(item.total_amount) > 0
-              ? Number(item.total_amount)
-              : localMatch?.total_amount !== undefined && localMatch.total_amount > 0
-              ? localMatch.total_amount
-              : totalHours * rate;
+          if (missingMachine || cachedMachines.length === 0) {
+            const { data: remoteMachines } = await supabase.from('machines').select('*');
+            if (remoteMachines) {
+              await db.cached_machines.bulkPut(remoteMachines as Machine[]);
+              cachedMachines = remoteMachines as Machine[];
+            }
+          }
+          const machineMap = new Map(cachedMachines.map((m) => [m.id, m]));
+          const storedUnits = getStoredMachineBillingUnits();
 
-          const startedAt = localMatch?.started_at || item.started_at || item.created_at;
-          const finishedAt =
-            localMatch?.finished_at ||
-            item.finished_at ||
-            (item.status !== 'em_andamento'
-              ? item.updated_at || item.created_at
-              : undefined);
-          const startTime =
-            localMatch?.start_time || resolveOptionalTimeHHMM(startedAt);
-          const endTime =
-            localMatch?.end_time || resolveOptionalTimeHHMM(finishedAt);
+          let cachedProfiles = await db.cached_profiles.toArray();
+          const profileIds = new Set(data.map((item: any) => item.operator_id));
+          const missingProfile = Array.from(profileIds).some(
+            (id) => !cachedProfiles.some((p) => p.id === id)
+          );
+          if (missingProfile || cachedProfiles.length === 0) {
+            const { data: remoteProfiles } = await supabase.from('profiles').select('*');
+            if (remoteProfiles) {
+              await db.cached_profiles.bulkPut(remoteProfiles);
+              cachedProfiles = remoteProfiles;
+            }
+          }
+          const profileMap = new Map(cachedProfiles.map((p) => [p.id, p]));
+          const allLocalLogs = await db.offline_work_logs.toArray();
+          const localByServerId = new Map(
+            allLocalLogs.filter((l) => l.server_id).map((l) => [l.server_id!, l])
+          );
 
-          return {
-            id: item.id,
-            server_id: item.id,
-            machine_id: item.machine_id,
-            machine_name:
-              machine?.name || localMatch?.machine_name || 'Retroescavadeira',
-            operator_id: item.operator_id,
-            operator_name:
-              profile?.full_name || localMatch?.operator_name || 'Operador',
-            client_name: item.client_name,
-            client_phone: item.client_phone || localMatch?.client_phone || null,
-            service_date: item.service_date,
-            start_hours: startH,
-            end_hours: endH,
-            total_hours: totalHours,
-            observations: item.observations,
-            status: item.status || 'pendente',
-            payment_status: (item.payment_status ||
-              localMatch?.payment_status ||
-              'a_receber') as PaymentStatus,
-            started_at: startedAt,
-            finished_at: finishedAt,
-            start_time: startTime,
-            end_time: endTime,
-            hourly_rate: rate,
-            total_amount: totalAmount,
-            created_at: item.created_at,
-          };
-        });
+          resultLogs = data.map((item: any) => {
+            const machine = machineMap.get(item.machine_id);
+            const profile = profileMap.get(item.operator_id);
+            const localMatch = localByServerId.get(item.id);
+
+            const rate = Number(
+              item.hourly_rate ?? localMatch?.hourly_rate ?? machine?.hourly_rate ?? 0
+            );
+            const rawHours = Number(item.total_hours ?? 0);
+            const startH = Number(item.start_hours ?? 0);
+            const endH = Number(item.end_hours ?? 0);
+            const totalHours =
+              rawHours > 0 ? rawHours : calculateTotalHours(startH, endH);
+            const totalAmount =
+              item.total_amount !== undefined && Number(item.total_amount) > 0
+                ? Number(item.total_amount)
+                : localMatch?.total_amount !== undefined && localMatch.total_amount > 0
+                ? localMatch.total_amount
+                : totalHours * rate;
+
+            const startedAt = localMatch?.started_at || item.started_at || item.created_at;
+            const finishedAt =
+              localMatch?.finished_at ||
+              item.finished_at ||
+              (item.status !== 'em_andamento'
+                ? item.updated_at || item.created_at
+                : undefined);
+            const startTime =
+              localMatch?.start_time || resolveOptionalTimeHHMM(startedAt);
+            const endTime =
+              localMatch?.end_time || resolveOptionalTimeHHMM(finishedAt);
+            const resolvedUnit: BillingUnit =
+              item.billing_unit === 'km' ||
+              localMatch?.billing_unit === 'km' ||
+              machine?.billing_unit === 'km' ||
+              storedUnits[item.machine_id] === 'km'
+                ? 'km'
+                : 'hour';
+
+            return {
+              id: item.id,
+              server_id: item.id,
+              machine_id: item.machine_id,
+              machine_name:
+                machine?.name || localMatch?.machine_name || 'Retroescavadeira',
+              operator_id: item.operator_id,
+              operator_name:
+                profile?.full_name || localMatch?.operator_name || 'Operador',
+              client_name: item.client_name,
+              client_phone: item.client_phone || localMatch?.client_phone || null,
+              service_date: item.service_date,
+              start_hours: startH,
+              end_hours: endH,
+              total_hours: totalHours,
+              observations: item.observations,
+              status: item.status || 'pendente',
+              payment_status: (item.payment_status ||
+                localMatch?.payment_status ||
+                'a_receber') as PaymentStatus,
+              started_at: startedAt,
+              finished_at: finishedAt,
+              start_time: startTime,
+              end_time: endTime,
+              hourly_rate: rate,
+              total_amount: totalAmount,
+              billing_unit: resolvedUnit,
+              km_initial: item.km_initial ?? (resolvedUnit === 'km' ? startH : undefined),
+              km_final: item.km_final ?? (resolvedUnit === 'km' ? endH : undefined),
+              total_km: item.total_km ?? (resolvedUnit === 'km' ? totalHours : undefined),
+              created_at: item.created_at,
+            };
+          });
+        }
       }
     } catch (err) {
       console.warn(
@@ -265,11 +314,15 @@ export async function fetchAdminWorkLogs(
     }
   }
 
-  // Leitura do banco local Dexie se não houver dados do Supabase
-  if (resultLogs.length === 0) {
-    const localLogs = await db.offline_work_logs.toArray();
+  // Leitura do banco local Dexie se offline/falha de rede, ou mesclagem de itens pendentes se online
+  if (!fetchedFromSupabase || resultLogs.length === 0) {
+    const allLocalLogs = await db.offline_work_logs.toArray();
+    const localLogs = fetchedFromSupabase
+      ? allLocalLogs.filter((l) => l.sync_status === 'pending' || l.synced === false)
+      : allLocalLogs;
     const cachedMachines = await db.cached_machines.toArray();
     const machineMap = new Map(cachedMachines.map((m) => [m.id, m]));
+    const storedUnits = getStoredMachineBillingUnits();
 
     resultLogs = localLogs.map((log) => {
       const status = log.status || 'pendente';
@@ -287,6 +340,12 @@ export async function fetchAdminWorkLogs(
       const startedAt = log.started_at || log.created_at;
       const finishedAt =
         log.finished_at || (status !== 'em_andamento' ? log.created_at : undefined);
+      const resolvedUnit: BillingUnit =
+        log.billing_unit === 'km' ||
+        machine?.billing_unit === 'km' ||
+        storedUnits[log.machine_id] === 'km'
+          ? 'km'
+          : 'hour';
 
       return {
         id: log.id || log.server_id || `temp-${Math.random()}`,
@@ -310,6 +369,10 @@ export async function fetchAdminWorkLogs(
         end_time: log.end_time || resolveOptionalTimeHHMM(finishedAt),
         hourly_rate: rate,
         total_amount: totalAmount,
+        billing_unit: resolvedUnit,
+        km_initial: log.km_initial ?? (resolvedUnit === 'km' ? startH : undefined),
+        km_final: log.km_final ?? (resolvedUnit === 'km' ? endH : undefined),
+        total_km: log.total_km ?? (resolvedUnit === 'km' ? totalHours : undefined),
         created_at: log.created_at,
       };
     });
@@ -409,6 +472,7 @@ export async function updateAdminWorkLog(
         hourly_rate: rate,
         total_amount: totalAmount,
         observations: cleanObs,
+        ...(updates.billing_unit ? { billing_unit: updates.billing_unit } : {}),
         ...(updates.payment_status ? { payment_status: updates.payment_status } : {}),
       });
     }
@@ -719,6 +783,13 @@ export async function deleteWorkLog(
 export async function fetchMachines(): Promise<Machine[]> {
   const online =
     typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
+  const storedUnits = getStoredMachineBillingUnits();
+  const prevCached = await db.cached_machines.toArray();
+  const prevUnitMap = new Map(
+    prevCached
+      .filter((m) => m.billing_unit)
+      .map((m) => [m.id, m.billing_unit as BillingUnit])
+  );
 
   if (online) {
     try {
@@ -728,17 +799,32 @@ export async function fetchMachines(): Promise<Machine[]> {
         .order('name');
 
       if (!error && data) {
+        const enriched: Machine[] = (data as any[]).map((m) => {
+          const unit: BillingUnit =
+            m.billing_unit === 'km' ||
+            storedUnits[m.id] === 'km' ||
+            prevUnitMap.get(m.id) === 'km'
+              ? 'km'
+              : 'hour';
+          setStoredMachineBillingUnit(m.id, unit);
+          return {
+            ...(m as Machine),
+            billing_unit: unit,
+          };
+        });
         await db.cached_machines.clear();
-        await db.cached_machines.bulkPut(data as Machine[]);
-        return data as Machine[];
+        await db.cached_machines.bulkPut(enriched);
+        return enriched;
       }
     } catch (err) {
       console.warn('[AdminService] Falha ao buscar máquinas no Supabase, usando cache local:', err);
     }
   }
 
-  const local = await db.cached_machines.toArray();
-  return local;
+  return prevCached.map((m) => ({
+    ...m,
+    billing_unit: m.billing_unit === 'km' || storedUnits[m.id] === 'km' ? 'km' : 'hour',
+  }));
 }
 
 /**
@@ -752,7 +838,9 @@ export async function saveMachine(
     const online =
       typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
 
-    const payload = {
+    const billingUnit: BillingUnit = machineData.billing_unit === 'km' ? 'km' : 'hour';
+
+    const basePayload = {
       name: String(machineData.name).trim(),
       model: String(machineData.model || '').trim(),
       hourly_rate: Number(machineData.hourly_rate) || 0,
@@ -760,17 +848,34 @@ export async function saveMachine(
       active: machineData.active !== undefined ? Boolean(machineData.active) : true,
     };
 
+    const payloadWithUnit = {
+      ...basePayload,
+      billing_unit: billingUnit,
+    };
+
     let savedMachine: Machine;
 
     if (online) {
       if (machineData.id) {
         // EDIÇÃO (UPDATE)
-        const { data, error } = await supabase
+        let { data, error } = await supabase
           .from('machines')
-          .update(payload)
+          .update(payloadWithUnit)
           .eq('id', machineData.id)
           .select()
           .single();
+
+        // Fallback caso a coluna billing_unit ainda não tenha sido aplicada no banco remoto
+        if (error && String(error.message || '').toLowerCase().includes('billing_unit')) {
+          const retry = await supabase
+            .from('machines')
+            .update(basePayload)
+            .eq('id', machineData.id)
+            .select()
+            .single();
+          data = retry.data;
+          error = retry.error;
+        }
 
         if (error) {
           console.error('[Supabase saveMachine Error]:', error);
@@ -778,19 +883,32 @@ export async function saveMachine(
           return { success: false, error: error.message };
         }
 
-        savedMachine = (data as Machine) || {
-          id: machineData.id,
-          ...payload,
-          updated_at: now,
-          created_at: machineData.created_at || now,
+        savedMachine = {
+          ...((data as Machine) || {
+            id: machineData.id,
+            ...basePayload,
+            updated_at: now,
+            created_at: machineData.created_at || now,
+          }),
+          billing_unit: billingUnit,
         };
       } else {
         // NOVO CADASTRO (INSERT sem o campo 'id' para gerar UUID nativo no Supabase)
-        const { data, error } = await supabase
+        let { data, error } = await supabase
           .from('machines')
-          .insert(payload)
+          .insert(payloadWithUnit)
           .select()
           .single();
+
+        if (error && String(error.message || '').toLowerCase().includes('billing_unit')) {
+          const retry = await supabase
+            .from('machines')
+            .insert(basePayload)
+            .select()
+            .single();
+          data = retry.data;
+          error = retry.error;
+        }
 
         if (error) {
           console.error('[Supabase saveMachine Error]:', error);
@@ -805,7 +923,10 @@ export async function saveMachine(
           };
         }
 
-        savedMachine = data as Machine;
+        savedMachine = {
+          ...(data as Machine),
+          billing_unit: billingUnit,
+        };
       }
     } else {
       // Modo Offline: gera UUID compatível
@@ -817,12 +938,13 @@ export async function saveMachine(
 
       savedMachine = {
         id: localId,
-        ...payload,
+        ...payloadWithUnit,
         updated_at: now,
         created_at: machineData.created_at || now,
       };
     }
 
+    setStoredMachineBillingUnit(savedMachine.id, billingUnit);
     // Salva ou atualiza a máquina no cache local Dexie
     await db.cached_machines.put(savedMachine);
 
@@ -931,6 +1053,9 @@ export async function fetchAdminClients(): Promise<Client[]> {
     });
   }
 
+  let fetchedRemoteLogs = false;
+  let fetchedRemoteSchedules = false;
+
   if (online) {
     // 1. Consulta tabela dedicada `clients` no Supabase
     try {
@@ -963,7 +1088,8 @@ export async function fetchAdminClients(): Promise<Client[]> {
           .select('client_name, client_phone, created_at'),
       ]);
 
-      if (!wlRes.error && wlRes.data) {
+      if (!wlRes.error && wlRes.data !== null) {
+        fetchedRemoteLogs = true;
         for (const row of wlRes.data as any[]) {
           upsertIntoMap(row.client_name, row.client_phone, {
             created_at: row.created_at,
@@ -972,7 +1098,8 @@ export async function fetchAdminClients(): Promise<Client[]> {
         }
       }
 
-      if (!schedRes.error && schedRes.data) {
+      if (!schedRes.error && schedRes.data !== null) {
+        fetchedRemoteSchedules = true;
         for (const row of schedRes.data as any[]) {
           upsertIntoMap(row.client_name, row.client_phone, {
             created_at: row.created_at,
@@ -985,8 +1112,11 @@ export async function fetchAdminClients(): Promise<Client[]> {
     }
   }
 
-  // 3. Complementa com histórico local do Dexie (offline_work_logs e scheduled_services)
-  const localLogs = await db.offline_work_logs.toArray();
+  // 3. Complementa com histórico local do Dexie (se offline, todos; se online, apenas pendentes de sincronização)
+  const allLocalLogs = await db.offline_work_logs.toArray();
+  const localLogs = fetchedRemoteLogs
+    ? allLocalLogs.filter((l) => l.sync_status === 'pending' || l.synced === false)
+    : allLocalLogs;
   for (const log of localLogs) {
     upsertIntoMap(log.client_name, log.client_phone, {
       created_at: log.created_at,
@@ -994,7 +1124,10 @@ export async function fetchAdminClients(): Promise<Client[]> {
     });
   }
 
-  const localSchedules = await db.scheduled_services.toArray();
+  const allLocalSchedules = await db.scheduled_services.toArray();
+  const localSchedules = fetchedRemoteSchedules
+    ? allLocalSchedules.filter((s) => s.sync_status === 'pending' || s.synced === false)
+    : allLocalSchedules;
   for (const sched of localSchedules) {
     upsertIntoMap(sched.client_name, sched.client_phone, {
       created_at: sched.created_at,

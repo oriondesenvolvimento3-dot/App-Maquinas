@@ -45,11 +45,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   });
 
   const [recentServices, setRecentServices] = useState<ExtendedWorkLog[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const loadDashboardData = useCallback(() => {
-    fetchAdminMetrics().then(setMetrics);
-    fetchAdminWorkLogs('todos').then((logs) => {
-      setRecentServices(logs.slice(0, 4));
+    setIsLoading(true);
+    Promise.all([
+      fetchAdminMetrics().then(setMetrics),
+      fetchAdminWorkLogs('todos').then((logs) => {
+        setRecentServices(logs.slice(0, 4));
+      }),
+    ]).finally(() => {
+      setIsLoading(false);
     });
   }, []);
 
@@ -210,12 +216,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
 
           <div className="space-y-2.5">
-            {recentServices.length === 0 ? (
-              <div className="py-8 text-center bg-white border border-[#E2E8F0] rounded-2xl p-6">
-                <p className="text-sm font-bold text-[#0F172A]">Nenhum serviço registrado ainda.</p>
-                <p className="text-xs text-[#64748B] mt-1">
-                  Os novos serviços registrados aparecerão aqui.
-                </p>
+            {isLoading ? (
+              <div className="py-8 text-center text-xs font-semibold text-[#64748B]">
+                Carregando serviços recentes...
+              </div>
+            ) : recentServices.length === 0 ? (
+              <div className="py-8 text-center bg-white border border-[#E2E8F0] rounded-2xl p-6 space-y-3">
+                <div>
+                  <p className="text-sm font-bold text-[#0F172A]">
+                    Nenhum item cadastrado ainda
+                  </p>
+                  <p className="text-xs text-[#64748B] mt-1">
+                    Nenhum serviço registrado ainda. Os novos serviços aparecerão aqui.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={onNavigateToAgenda || onSwitchToOperator}
+                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-[#FBBF24] hover:bg-[#F59E0B] text-[#0F172A] font-extrabold text-xs rounded-xl shadow-xs transition-all cursor-pointer"
+                >
+                  <span>+ Cadastrar Serviço</span>
+                </button>
               </div>
             ) : (
               recentServices.map((service) => (

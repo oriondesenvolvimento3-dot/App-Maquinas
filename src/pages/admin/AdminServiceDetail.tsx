@@ -36,6 +36,7 @@ import {
   Phone,
   Trash2,
   Save,
+  ChevronDown,
 } from 'lucide-react';
 
 interface AdminServiceDetailProps {
@@ -68,6 +69,7 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [isSavingEdits, setIsSavingEdits] = useState<boolean>(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState<boolean>(false);
+  const [isPdfMenuOpen, setIsPdfMenuOpen] = useState<boolean>(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => {
@@ -96,6 +98,9 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
   const numericRate = parseFloat(hourlyRateInput.replace(',', '.')) || 0;
   const calculatedHours = calculateTotalHours(numStart, numEnd);
   const calculatedTotal = Number((calculatedHours * numericRate).toFixed(2));
+
+  const selectedMachine = machines.find((m) => m.id === machineIdInput);
+  const isKm = (selectedMachine?.billing_unit === 'km') || (service?.billing_unit === 'km');
 
   const handleMachineSelect = (newMachineId: string) => {
     setMachineIdInput(newMachineId);
@@ -169,6 +174,7 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
       start_hours: numStart,
       end_hours: numEnd,
       hourly_rate: numericRate,
+      billing_unit: isKm ? 'km' : 'hour',
       observations: cleanObs,
     });
 
@@ -189,6 +195,7 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
               total_hours: calculatedHours,
               hourly_rate: numericRate,
               total_amount: calculatedTotal,
+              billing_unit: isKm ? 'km' : 'hour',
               observations: cleanObs,
             }
           : null
@@ -231,6 +238,7 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
       start_hours: numStart,
       end_hours: numEnd,
       hourly_rate: numericRate,
+      billing_unit: isKm ? 'km' : 'hour',
       observations: cleanObs,
     });
 
@@ -319,24 +327,43 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
     const currentMachine = machineNameInput || service.machine_name;
     const currentObs = observationsInput.trim();
 
-    const messageLines = [
-      `🚜 *RETROSCAVE - COMPROVANTE DE SERVIÇO*`,
-      `━━━━━━━━━━━━━━━━━━━━━━`,
-      `👤 *Cliente:* ${currentClient}`,
-      `📅 *Data:* ${dateFormatted}`,
-      `🚜 *Máquina:* ${currentMachine}`,
-      `👷 *Operador:* ${service.operator_name}`,
-      `━━━━━━━━━━━━━━━━━━━━━━`,
-      `⏱️ *Horímetro Inicial:* ${numStart}h`,
-      `⏱️ *Horímetro Final:* ${numEnd}h`,
-      `⏳ *Total de Horas:* ${calculatedHours}h`,
-      `💵 *Valor por Hora:* ${rateFmt}`,
-      `💰 *VALOR TOTAL A ACERTAR:* ${totalFmt}`,
-      `━━━━━━━━━━━━━━━━━━━━━━`,
-      currentObs ? `📝 *Observações:* ${currentObs}\n━━━━━━━━━━━━━━━━━━━━━━\n` : '',
-      `✅ *Status:* Serviço Conferido`,
-      `_Obrigado pela preferência e parceria!_`,
-    ];
+    const messageLines = isKm
+      ? [
+          `🚚 *RETROSCAVE - COMPROVANTE DE SERVIÇO (GUINCHO)*`,
+          `━━━━━━━━━━━━━━━━━━━━━━`,
+          `👤 *Cliente:* ${currentClient}`,
+          `📅 *Data:* ${dateFormatted}`,
+          `🚚 *Veículo:* ${currentMachine}`,
+          `👷 *Operador:* ${service.operator_name}`,
+          `━━━━━━━━━━━━━━━━━━━━━━`,
+          `🛣️ *KM Inicial:* ${numStart} km`,
+          `🛣️ *KM Final:* ${numEnd} km`,
+          `🚗 *Distância Percorrida:* ${calculatedHours} km`,
+          `💵 *Valor por KM:* ${rateFmt}`,
+          `💰 *VALOR TOTAL A ACERTAR:* ${totalFmt}`,
+          `━━━━━━━━━━━━━━━━━━━━━━`,
+          currentObs ? `📝 *Observações:* ${currentObs}\n━━━━━━━━━━━━━━━━━━━━━━\n` : '',
+          `✅ *Status:* Serviço Conferido`,
+          `_Obrigado pela preferência e parceria!_`,
+        ]
+      : [
+          `🚜 *RETROSCAVE - COMPROVANTE DE SERVIÇO*`,
+          `━━━━━━━━━━━━━━━━━━━━━━`,
+          `👤 *Cliente:* ${currentClient}`,
+          `📅 *Data:* ${dateFormatted}`,
+          `🚜 *Máquina:* ${currentMachine}`,
+          `👷 *Operador:* ${service.operator_name}`,
+          `━━━━━━━━━━━━━━━━━━━━━━`,
+          `⏱️ *Horímetro Inicial:* ${numStart}h`,
+          `⏱️ *Horímetro Final:* ${numEnd}h`,
+          `⏳ *Total de Horas:* ${calculatedHours}h`,
+          `💵 *Valor por Hora:* ${rateFmt}`,
+          `💰 *VALOR TOTAL A ACERTAR:* ${totalFmt}`,
+          `━━━━━━━━━━━━━━━━━━━━━━`,
+          currentObs ? `📝 *Observações:* ${currentObs}\n━━━━━━━━━━━━━━━━━━━━━━\n` : '',
+          `✅ *Status:* Serviço Conferido`,
+          `_Obrigado pela preferência e parceria!_`,
+        ];
 
     const message = messageLines.filter(Boolean).join('\n');
     const encoded = encodeURIComponent(message);
@@ -352,10 +379,11 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
 
   /**
    * Exporta comprovante individual timbrado em formato PDF (notinha A5).
-   * Não inclui horário de início/fim do dia, apenas data, máquina, horímetros e horas totais.
+   * Permite exportar com ou sem valores financeiros (`showPricing`).
    */
-  const handleExportPdf = () => {
+  const handleExportPdf = (showPricing: boolean = true) => {
     if (!service) return;
+    setIsPdfMenuOpen(false);
     generateSingleServiceReceiptPdf(
       {
         id: service.id,
@@ -367,10 +395,12 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
         start_hours: numStart,
         end_hours: numEnd,
         total_hours: calculatedHours,
+        billing_unit: isKm ? 'km' : 'hour',
         observations: observationsInput.trim() || null,
       },
       numericRate,
-      calculatedTotal
+      calculatedTotal,
+      showPricing
     );
   };
 
@@ -516,13 +546,77 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
             <button
               id="btn-pdf-receipt"
               type="button"
-              onClick={handleExportPdf}
+              aria-expanded={isPdfMenuOpen}
+              aria-haspopup="menu"
+              onClick={() => setIsPdfMenuOpen((prev) => !prev)}
               className="h-11 px-2.5 bg-[#0F172A] hover:bg-[#1E293B] active:scale-[0.98] text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer"
             >
               <FileText className="w-4 h-4 text-[#FBBF24] flex-shrink-0" />
               <span className="truncate">Exportar Notinha (PDF)</span>
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-slate-400 flex-shrink-0 transition-transform ${
+                  isPdfMenuOpen ? 'rotate-180' : ''
+                }`}
+              />
             </button>
           </div>
+
+          {/* Menu Dropdown / Popover de Seleção do Formato da Notinha PDF */}
+          {isPdfMenuOpen && (
+            <div
+              role="menu"
+              aria-label="Opções de exportação de PDF"
+              className="mt-2 p-2 bg-white border border-[#CBD5E1] rounded-xl shadow-md space-y-1.5 animate-fade-in"
+            >
+              <p className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#64748B]">
+                Escolha o formato da notinha:
+              </p>
+
+              <button
+                id="btn-pdf-with-pricing"
+                type="button"
+                role="menuitem"
+                onClick={() => handleExportPdf(true)}
+                className="w-full p-2.5 rounded-lg hover:bg-amber-50/70 active:bg-amber-100/60 border border-transparent hover:border-amber-200 flex items-center gap-3 text-left transition-all cursor-pointer"
+              >
+                <div className="w-8 h-8 rounded-lg bg-[#FEF3C7] text-[#B45309] flex items-center justify-center shrink-0">
+                  <DollarSign className="w-4 h-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-extrabold text-[#0F172A]">
+                    Com Valores (Completo)
+                  </p>
+                  <p className="text-[11px] text-[#64748B] truncate">
+                    {isKm
+                      ? `Inclui tarifa/km e valor total (${formatCurrencyBRL(calculatedTotal)})`
+                      : `Inclui tarifa/hora e valor total (${formatCurrencyBRL(calculatedTotal)})`}
+                  </p>
+                </div>
+              </button>
+
+              <button
+                id="btn-pdf-without-pricing"
+                type="button"
+                role="menuitem"
+                onClick={() => handleExportPdf(false)}
+                className="w-full p-2.5 rounded-lg hover:bg-slate-100 active:bg-slate-200/70 border border-transparent hover:border-slate-200 flex items-center gap-3 text-left transition-all cursor-pointer"
+              >
+                <div className="w-8 h-8 rounded-lg bg-slate-100 text-[#0F172A] flex items-center justify-center shrink-0">
+                  <Clock className="w-4 h-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-extrabold text-[#0F172A]">
+                    Sem Valores (Apenas {isKm ? 'Quilômetros' : 'Horas'})
+                  </p>
+                  <p className="text-[11px] text-[#64748B] truncate">
+                    {isKm
+                      ? `Exibe somente quilometragem e distância (${calculatedHours} km)`
+                      : `Exibe somente horímetros e total de horas (${calculatedHours}h)`}
+                  </p>
+                </div>
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Card Principal: Conferência e Edição pelo Administrador */}
@@ -681,17 +775,17 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
             </div>
           </div>
 
-          {/* Campos 5 e 6: Horímetro Inicial e Horímetro Final */}
+          {/* Campos 5 e 6: Horímetro / KM Inicial e Horímetro / KM Final */}
           <div className="grid grid-cols-2 gap-3 pt-1">
             <div>
               <label htmlFor="admin-edit-start-hours" className="text-xs font-bold text-[#0F172A] flex items-center gap-1 mb-1">
                 <Clock className="w-3.5 h-3.5 text-[#64748B]" />
-                <span>Horím. Inicial (h)</span>
+                <span>{isKm ? 'KM Inicial (km)' : 'Horím. Inicial (h)'}</span>
               </label>
               <input
                 id="admin-edit-start-hours"
                 type="number"
-                step="0.1"
+                step={isKm ? '1' : '0.1'}
                 value={startHoursInput}
                 onChange={(e) => setStartHoursInput(e.target.value)}
                 className="w-full h-11 px-3 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-sm font-bold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
@@ -701,12 +795,12 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
             <div>
               <label htmlFor="admin-edit-end-hours" className="text-xs font-bold text-[#0F172A] flex items-center gap-1 mb-1">
                 <RotateCw className="w-3.5 h-3.5 text-[#64748B]" />
-                <span>Horím. Final (h)</span>
+                <span>{isKm ? 'KM Final (km)' : 'Horím. Final (h)'}</span>
               </label>
               <input
                 id="admin-edit-end-hours"
                 type="number"
-                step="0.1"
+                step={isKm ? '1' : '0.1'}
                 value={endHoursInput}
                 onChange={(e) => setEndHoursInput(e.target.value)}
                 className="w-full h-11 px-3 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-sm font-bold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
@@ -714,25 +808,27 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
             </div>
           </div>
 
-          {/* Item 7: Horas trabalhadas (Recalculadas automaticamente) */}
+          {/* Item 7: Horas trabalhadas ou Distância percorrida (Recalculadas automaticamente) */}
           <div className="flex items-center justify-between p-3 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl">
             <div className="flex items-center gap-2">
               <Fuel className="w-4 h-4 text-[#0F172A]" />
-              <span className="text-xs font-semibold text-[#64748B]">Horas trabalhadas</span>
+              <span className="text-xs font-semibold text-[#64748B]">
+                {isKm ? 'Distância percorrida' : 'Horas trabalhadas'}
+              </span>
             </div>
             <span className="text-sm font-extrabold text-[#0F172A]">
-              {calculatedHours}h
+              {calculatedHours}{isKm ? ' km' : 'h'}
             </span>
           </div>
 
-          {/* Item 8: Valor por hora (Editável para o Administrador) */}
+          {/* Item 8: Valor por hora / KM (Editável para o Administrador) */}
           <div className="flex items-start gap-3 pt-1">
             <div className="p-2 bg-[#FEF3C7] rounded-xl border border-[#FDE68A] text-[#B45309] mt-6">
               <DollarSign className="w-4 h-4 text-[#B45309]" />
             </div>
             <div className="flex-1 min-w-0">
               <label htmlFor="input-applied-hourly-rate" className="text-xs font-bold text-[#0F172A] block mb-1">
-                Valor por hora (R$)
+                {isKm ? 'Valor por KM (R$/km)' : 'Valor por hora (R$)'}
               </label>
               <input
                 id="input-applied-hourly-rate"
@@ -741,7 +837,7 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
                 value={hourlyRateInput}
                 onChange={(e) => setHourlyRateInput(e.target.value)}
                 className="w-full h-11 px-3 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-sm font-bold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
-                placeholder="160.00"
+                placeholder={isKm ? '8.50' : '160.00'}
               />
             </div>
           </div>
