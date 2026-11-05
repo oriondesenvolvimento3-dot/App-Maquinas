@@ -73,6 +73,7 @@ const SERVICE_TYPE_OPTIONS = [
   'Destoca',
   'Escavação de Açude / Tanque',
   'Carregamento de Caminhão',
+  'Reboque / Guincho',
   'Outro',
 ];
 
@@ -238,7 +239,7 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
   // Estados dos campos do formulário
   const [formClientName, setFormClientName] = useState<string>('');
   const [formClientPhone, setFormClientPhone] = useState<string>('');
-  const [formServiceType, setFormServiceType] = useState<string>('Terraplanagem');
+  const [formServiceType, setFormServiceType] = useState<string>('');
   const [formDate, setFormDate] = useState<string>(() => getTodayStr());
   const [formPeriod, setFormPeriod] = useState<ScheduledServicePeriod>('integral');
   const [formMachineId, setFormMachineId] = useState<string>('');
@@ -430,7 +431,7 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
     setEditingSchedule(null);
     setFormClientName('');
     setFormClientPhone('');
-    setFormServiceType('Terraplanagem');
+    setFormServiceType('');
     setFormDate(presetDate || selectedDate || getTodayStr());
     setFormPeriod(presetPeriod);
     setFormMachineId(machines[0]?.id || '');
@@ -452,7 +453,7 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
     setEditingSchedule(item);
     setFormClientName(item.client_name || '');
     setFormClientPhone(item.client_phone ? applyPhoneMask(item.client_phone) : '');
-    setFormServiceType(item.service_type || 'Terraplanagem');
+    setFormServiceType(item.service_type || '');
     setFormDate(item.scheduled_date || getTodayStr());
     setFormPeriod(item.scheduled_period || item.period || 'integral');
     setFormMachineId(item.machine_id || '');
@@ -492,6 +493,10 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
 
     if (!formClientName.trim()) {
       setFormError('Informe o nome do cliente.');
+      return;
+    }
+    if (!formServiceType.trim()) {
+      setFormError('Informe o tipo de serviço.');
       return;
     }
     if (!formDate) {
@@ -638,28 +643,28 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
     switch (status) {
       case 'em_andamento':
         return (
-          <span className="px-2 py-0.5 bg-amber-100/90 text-amber-900 border border-amber-300 rounded-md text-[11px] font-semibold inline-flex items-center gap-1 shrink-0 whitespace-nowrap">
+          <span className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200/70 rounded-md text-[11px] font-semibold inline-flex items-center gap-1 shrink-0 whitespace-nowrap">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
             Em Andamento
           </span>
         );
       case 'concluido':
         return (
-          <span className="px-2 py-0.5 bg-[#DCFCE7] text-[#166534] border border-[#86EFAC] rounded-md text-[11px] font-semibold inline-flex items-center gap-1 shrink-0 whitespace-nowrap">
-            <CheckCircle2 className="w-3 h-3 shrink-0" />
+          <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200/60 rounded-md text-[11px] font-semibold inline-flex items-center gap-1 shrink-0 whitespace-nowrap">
+            <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
             Concluído
           </span>
         );
       case 'cancelado':
         return (
-          <span className="px-2 py-0.5 bg-[#FEE2E2] text-[#991B1B] border border-red-200 rounded-md text-[11px] font-semibold shrink-0 whitespace-nowrap">
+          <span className="px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200/60 rounded-md text-[11px] font-semibold shrink-0 whitespace-nowrap">
             Cancelado
           </span>
         );
       case 'agendado':
       default:
         return (
-          <span className="px-2 py-0.5 bg-sky-100/90 text-sky-800 border border-sky-200 rounded-md text-[11px] font-semibold shrink-0 whitespace-nowrap">
+          <span className="px-2 py-0.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-md text-[11px] font-semibold shrink-0 whitespace-nowrap">
             Agendado
           </span>
         );
@@ -667,27 +672,19 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
   };
 
   /**
-   * Define estilo visual pastel + barra lateral colorida por status/máquina para os blocos na grade
+   * Define estilo visual sóbrio e corporativo: fundo neutro + borda sutil + indicador lateral discreto
    */
   const getTimelineBlockStyle = (item: ScheduledService) => {
     switch (item.status) {
       case 'em_andamento':
-        return 'bg-amber-50/95 hover:bg-amber-100/80 border-amber-200 border-l-4 border-l-[#F59E0B]';
+        return 'bg-white hover:bg-slate-50/80 border-slate-200/80 border-l-[3px] border-l-amber-500 shadow-sm';
       case 'concluido':
-        return 'bg-emerald-50/90 hover:bg-emerald-100/70 border-emerald-200 border-l-4 border-l-emerald-500';
+        return 'bg-white hover:bg-slate-50/80 border-slate-200/80 border-l-[3px] border-l-emerald-600 shadow-sm';
       case 'cancelado':
-        return 'bg-rose-50/60 hover:bg-rose-100/60 border-rose-200 border-l-4 border-l-rose-400 opacity-75';
+        return 'bg-white hover:bg-slate-50/80 border-slate-200/80 border-l-[3px] border-l-slate-300 opacity-60 shadow-sm';
       case 'agendado':
-      default: {
-        const period = item.scheduled_period || item.period || 'integral';
-        if (period === 'integral') {
-          return 'bg-amber-50/70 hover:bg-amber-100/60 border-amber-200/90 border-l-4 border-l-[#FBBF24]';
-        }
-        if (period === 'tarde') {
-          return 'bg-indigo-50/80 hover:bg-indigo-100/60 border-indigo-200 border-l-4 border-l-indigo-500';
-        }
-        return 'bg-sky-50/90 hover:bg-sky-100/70 border-sky-200 border-l-4 border-l-sky-500';
-      }
+      default:
+        return 'bg-white hover:bg-slate-50/80 border-slate-200/80 border-l-[3px] border-l-slate-400 shadow-sm';
     }
   };
 
@@ -718,7 +715,7 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
             setDetailSchedule(item);
           }
         }}
-        className={`w-full min-w-0 overflow-hidden text-left border border-l-4 rounded-r-lg p-2.5 shadow-2xs transition-all cursor-pointer active:scale-[0.99] space-y-1 ${getTimelineBlockStyle(
+        className={`w-full min-w-0 overflow-hidden text-left border rounded-xl p-3 transition-all cursor-pointer active:scale-[0.99] space-y-1.5 ${getTimelineBlockStyle(
           item
         )}`}
       >
@@ -884,12 +881,6 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
               const activeSchedulesCount = daySchedules.filter(
                 (s) => s.status !== 'cancelado'
               ).length;
-              const hasInProgress = daySchedules.some(
-                (s) => s.status === 'em_andamento'
-              );
-              const hasCompleted =
-                activeSchedulesCount > 0 &&
-                daySchedules.every((s) => s.status === 'concluido');
 
               return (
                 <button
@@ -900,19 +891,19 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
                   onClick={() => setSelectedDate(day.dateStr)}
                   className={`py-1.5 px-0.5 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer relative border min-w-0 ${
                     isSelected
-                      ? 'bg-[#0F172A] text-white border-[#0F172A] shadow-sm'
+                      ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
                       : day.isToday
-                      ? 'bg-[#FEF3C7]/60 text-[#0F172A] border-[#FBBF24] hover:bg-[#FEF3C7]'
-                      : 'bg-[#F8FAFC] text-[#475569] border-[#E2E8F0] hover:border-[#CBD5E1] hover:bg-white'
+                      ? 'bg-white text-slate-900 border-slate-300 font-bold hover:bg-slate-50'
+                      : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                   }`}
                 >
                   <span
                     className={`text-[9px] font-bold uppercase tracking-tight ${
                       isSelected
-                        ? 'text-[#FBBF24]'
+                        ? 'text-slate-300'
                         : day.isToday
-                        ? 'text-[#B45309]'
-                        : 'text-[#64748B]'
+                        ? 'text-slate-800'
+                        : 'text-slate-500'
                     }`}
                   >
                     {day.shortLabel}
@@ -920,35 +911,20 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
 
                   <span
                     className={`text-xs sm:text-sm font-extrabold mt-0.5 ${
-                      isSelected ? 'text-white' : 'text-[#0F172A]'
+                      isSelected ? 'text-white' : 'text-slate-900'
                     }`}
                   >
                     {day.dayNumber}
                   </span>
 
-                  {/* Ponto Indicador de Agendamentos no Dia */}
+                  {/* Ponto Indicador de Agendamentos no Dia (Sóbrio e Minimalista) */}
                   <div className="h-2 flex items-center justify-center gap-0.5 mt-0.5">
                     {activeSchedulesCount > 0 ? (
-                      <>
-                        <span
-                          className={`w-1.5 h-1.5 rounded-full ${
-                            hasInProgress
-                              ? 'bg-[#F59E0B]'
-                              : hasCompleted
-                              ? 'bg-emerald-500'
-                              : isSelected
-                              ? 'bg-[#FBBF24]'
-                              : 'bg-sky-500'
-                          }`}
-                        />
-                        {activeSchedulesCount > 1 && (
-                          <span
-                            className={`w-1.5 h-1.5 rounded-full ${
-                              isSelected ? 'bg-white/70' : 'bg-slate-400'
-                            }`}
-                          />
-                        )}
-                      </>
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          isSelected ? 'bg-white' : 'bg-slate-600'
+                        }`}
+                      />
                     ) : (
                       <span className="w-1.5 h-1.5 rounded-full bg-transparent" />
                     )}
@@ -1098,10 +1074,10 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
               {integralSchedules.length > 0 && (
                 <div className="mb-3 space-y-2 w-full overflow-hidden">
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 shrink-0">
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 shrink-0">
                       Expediente Integral • 07:00 às 17:00
                     </span>
-                    <div className="flex-1 h-px bg-amber-200/70" />
+                    <div className="flex-1 h-px bg-slate-200" />
                   </div>
                   <div className="space-y-2 w-full min-w-0">
                     {integralSchedules.map((item) => renderTimelineServiceBlock(item))}
@@ -1151,34 +1127,34 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
                       <button
                         type="button"
                         onClick={() => handleOpenNewModal(selectedDate, 'manha')}
-                        className="w-full min-h-[80px] rounded-xl border border-dashed border-slate-200 hover:border-[#FBBF24] bg-[#F8FAFC]/60 hover:bg-amber-50/30 px-3 py-2.5 text-left transition-all flex items-center justify-between gap-2 group cursor-pointer"
+                        className="w-full min-h-[80px] rounded-xl border border-dashed border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50/80 px-3 py-2.5 text-left transition-all flex items-center justify-between gap-2 group cursor-pointer shadow-2xs"
                       >
                         <div className="min-w-0">
-                          <p className="text-xs font-bold text-[#475569] group-hover:text-[#0F172A] truncate">
+                          <p className="text-xs font-bold text-slate-700 group-hover:text-slate-900 truncate">
                             Turno da Manhã (07:00 – 12:00)
                           </p>
-                          <p className="text-[11px] text-[#94A3B8] truncate">
+                          <p className="text-[11px] text-slate-400 truncate">
                             Toque para agendar pela manhã
                           </p>
                         </div>
-                        <Plus className="w-4 h-4 text-[#94A3B8] group-hover:text-[#F59E0B] shrink-0" />
+                        <Plus className="w-4 h-4 text-slate-400 group-hover:text-slate-600 shrink-0" />
                       </button>
                     )}
                   </div>
                 </div>
 
                 {/* MARCADOR 12:00 - INTERVALO DE ALMOÇO */}
-                <div className="grid grid-cols-[44px_minmax(0,1fr)] gap-2 py-2.5">
+                <div className="grid grid-cols-[44px_minmax(0,1fr)] gap-2 py-2">
                   <div className="w-11 text-right pr-1.5 border-r border-slate-200">
-                    <span className="text-[11px] font-extrabold text-[#475569] block leading-tight">
+                    <span className="text-[11px] font-bold text-slate-500 block leading-tight">
                       12:00
                     </span>
-                    <span className="text-[8px] font-bold text-[#94A3B8] uppercase block leading-tight">
+                    <span className="text-[8px] font-medium text-slate-400 uppercase block leading-tight">
                       Almoço
                     </span>
                   </div>
-                  <div className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-slate-100/80 border border-slate-200/70 text-[11px] font-semibold text-[#64748B] min-w-0">
-                    <Coffee className="w-3.5 h-3.5 text-[#94A3B8] shrink-0" />
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-100 text-slate-500 text-xs min-w-0">
+                    <Coffee className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                     <span className="truncate">12:00 às 13:00 • Intervalo de Almoço</span>
                   </div>
                 </div>
@@ -1213,17 +1189,17 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
                       <button
                         type="button"
                         onClick={() => handleOpenNewModal(selectedDate, 'tarde')}
-                        className="w-full min-h-[80px] rounded-xl border border-dashed border-slate-200 hover:border-[#FBBF24] bg-[#F8FAFC]/60 hover:bg-amber-50/30 px-3 py-2.5 text-left transition-all flex items-center justify-between gap-2 group cursor-pointer"
+                        className="w-full min-h-[80px] rounded-xl border border-dashed border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50/80 px-3 py-2.5 text-left transition-all flex items-center justify-between gap-2 group cursor-pointer shadow-2xs"
                       >
                         <div className="min-w-0">
-                          <p className="text-xs font-bold text-[#475569] group-hover:text-[#0F172A] truncate">
+                          <p className="text-xs font-bold text-slate-700 group-hover:text-slate-900 truncate">
                             Turno da Tarde (13:00 – 17:00)
                           </p>
-                          <p className="text-[11px] text-[#94A3B8] truncate">
+                          <p className="text-[11px] text-slate-400 truncate">
                             Toque para agendar à tarde
                           </p>
                         </div>
-                        <Plus className="w-4 h-4 text-[#94A3B8] group-hover:text-[#F59E0B] shrink-0" />
+                        <Plus className="w-4 h-4 text-slate-400 group-hover:text-slate-600 shrink-0" />
                       </button>
                     )}
                   </div>
@@ -1305,20 +1281,20 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
                       <h3 className="text-base font-extrabold text-[#0F172A] leading-snug">
                         {item.client_name}
                       </h3>
-                      <div className="flex items-center gap-1.5 text-xs font-bold text-[#B45309] mt-0.5">
-                        <Wrench className="w-3.5 h-3.5 text-[#F59E0B] shrink-0" />
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 mt-0.5">
+                        <Wrench className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                         <span>{item.service_type}</span>
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-[#475569] font-medium">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/90 border border-slate-200/80 text-[11px] font-bold text-[#0F172A]">
-                        <Truck className="w-3.5 h-3.5 text-[#F59E0B]" />
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 font-medium">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-50 border border-slate-200/80 text-[11px] font-bold text-slate-800">
+                        <Truck className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                         <span>{item.machine_name || 'Máquina a definir'}</span>
                       </span>
 
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/90 border border-slate-200/80 text-[11px] font-semibold text-[#475569]">
-                        <User className="w-3.5 h-3.5 text-[#64748B]" />
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-50 border border-slate-200/80 text-[11px] font-semibold text-slate-600">
+                        <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                         <span>{item.operator_name || 'Operador a definir'}</span>
                       </span>
                     </div>
@@ -1631,18 +1607,21 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
                 >
                   Tipo de Serviço *
                 </label>
-                <select
+                <input
                   id="schedule-service-type"
+                  type="text"
+                  list="service-types-list"
                   value={formServiceType}
                   onChange={(e) => setFormServiceType(e.target.value)}
+                  placeholder="Ex: Terraplanagem, Guincho, Abertura de Valas..."
+                  required
                   className="w-full h-11 px-3.5 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-sm font-semibold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
-                >
+                />
+                <datalist id="service-types-list">
                   {SERVICE_TYPE_OPTIONS.map((opt) => (
-                    <option key={opt} value={opt}>
-                      {opt}
-                    </option>
+                    <option key={opt} value={opt} />
                   ))}
-                </select>
+                </datalist>
               </div>
 
               {/* Data do Agendamento */}

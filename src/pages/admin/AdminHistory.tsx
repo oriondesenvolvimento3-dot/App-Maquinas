@@ -522,12 +522,12 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
           </div>
 
           {/* Card Total Faturado */}
-          <div className="bg-blue-50/80 border border-blue-200 rounded-2xl p-3.5 shadow-xs flex flex-col justify-between h-20">
-            <div className="flex items-center gap-1.5 text-blue-800">
+          <div className="bg-slate-100/90 border border-slate-200 rounded-2xl p-3.5 shadow-xs flex flex-col justify-between h-20">
+            <div className="flex items-center gap-1.5 text-[#334155]">
               <DollarSign className="w-4 h-4" />
               <span className="text-xs font-bold">Total Faturado</span>
             </div>
-            <p id="summary-total-billed" className="text-sm font-extrabold text-blue-900 truncate">
+            <p id="summary-total-billed" className="text-sm font-extrabold text-[#0F172A] truncate">
               {formatCurrencyBRL(totalFilteredAmount)}
             </p>
           </div>
