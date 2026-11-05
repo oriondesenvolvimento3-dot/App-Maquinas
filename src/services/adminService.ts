@@ -1,8 +1,14 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { db } from '../lib/dexieDb';
-import { toast } from './syncService';
-import { formatTimeHHMM, calculateTotalHours } from '../utils/formatters';
-import type { Machine, WorkLogStatus, PaymentStatus, OfflineWorkLog } from '../types/database';
+import { toast, isValidUuid } from './syncService';
+import { formatTimeHHMM, calculateTotalHours, applyPhoneMask } from '../utils/formatters';
+import type {
+  Machine,
+  Client,
+  WorkLogStatus,
+  PaymentStatus,
+  OfflineWorkLog,
+} from '../types/database';
 
 export interface AdminMetrics {
   totalServices: number;
@@ -824,6 +830,331 @@ export async function saveMachine(
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Falha ao salvar máquina';
     console.error('[saveMachine Unexpected Error]:', msg);
+    return { success: false, error: msg };
+  }
+}
+
+const REMOVED_CLIENTS_STORAGE_KEY = 'retroscave_removed_clients_v1';
+
+function getRemovedClientKeys(): Set<string> {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return new Set();
+  }
+  try {
+    const raw = window.localStorage.getItem(REMOVED_CLIENTS_STORAGE_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? new Set(parsed.map((s) => String(s).toLowerCase())) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function saveRemovedClientKeys(keys: Set<string>): void {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    window.localStorage.setItem(
+      REMOVED_CLIENTS_STORAGE_KEY,
+      JSON.stringify(Array.from(keys))
+    );
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+/**
+ * 6. Meus Clientes: Consulta a tabela `clients` no Supabase e consolida com clientes únicos
+ * do histórico de `work_logs` e `scheduled_services` (sem duplicatas).
+ */
+export async function fetchAdminClients(): Promise<Client[]> {
+  const online =
+    typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
+
+  const removedKeys = getRemovedClientKeys();
+  const consolidatedMap = new Map<string, Client>();
+
+  const upsertIntoMap = (
+    rawName?: string | null,
+    rawPhone?: string | null,
+    options?: {
+      id?: string;
+      is_active?: boolean;
+      created_at?: string;
+      source?: 'clients' | 'history';
+    }
+  ) => {
+    const cleanName = (rawName || '').trim();
+    if (!cleanName || cleanName.toLowerCase() === 'em andamento') return;
+
+    const key = cleanName.toLowerCase();
+    if (options?.is_active === false) {
+      removedKeys.add(key);
+      consolidatedMap.delete(key);
+      return;
+    }
+    if (removedKeys.has(key) && options?.source !== 'clients') {
+      return;
+    }
+
+    const formattedPhone =
+      rawPhone && rawPhone.trim().length > 0 ? applyPhoneMask(rawPhone.trim()) : null;
+
+    const existing = consolidatedMap.get(key);
+    if (!existing) {
+      consolidatedMap.set(key, {
+        id: options?.id || `hist-${key.replace(/\s+/g, '-')}`,
+        name: cleanName,
+        phone: formattedPhone,
+        is_active: true,
+        created_at: options?.created_at || new Date().toISOString(),
+        source: options?.source || 'history',
+      });
+    } else {
+      consolidatedMap.set(key, {
+        ...existing,
+        id: options?.source === 'clients' && options.id ? options.id : existing.id,
+        name: options?.source === 'clients' ? cleanName : existing.name,
+        phone: formattedPhone || existing.phone || null,
+        source: options?.source === 'clients' ? 'clients' : existing.source,
+      });
+    }
+  };
+
+  // 0. Pré-carrega clientes locais do Dexie para registrar ativos e desativados (is_active === false)
+  const localClients = await db.cached_clients.toArray();
+  for (const lc of localClients) {
+    upsertIntoMap(lc.name, lc.phone, {
+      id: lc.id,
+      is_active: lc.is_active !== false,
+      created_at: lc.created_at,
+      source: 'clients',
+    });
+  }
+
+  if (online) {
+    // 1. Consulta tabela dedicada `clients` no Supabase
+    try {
+      const { data: remoteClients, error: clientsErr } = await supabase
+        .from('clients')
+        .select('*')
+        .order('name');
+
+      if (!clientsErr && remoteClients) {
+        await db.cached_clients.bulkPut(remoteClients as Client[]);
+        for (const rc of remoteClients as any[]) {
+          upsertIntoMap(rc.name, rc.phone, {
+            id: rc.id,
+            is_active: rc.is_active !== false,
+            created_at: rc.created_at,
+            source: 'clients',
+          });
+        }
+      }
+    } catch {
+      // Tabela `clients` opcional ou sem rede no momento
+    }
+
+    // 2. Consulta histórico remoto de `work_logs` e `scheduled_services`
+    try {
+      const [wlRes, schedRes] = await Promise.all([
+        supabase.from('work_logs').select('client_name, client_phone, created_at'),
+        supabase
+          .from('scheduled_services')
+          .select('client_name, client_phone, created_at'),
+      ]);
+
+      if (!wlRes.error && wlRes.data) {
+        for (const row of wlRes.data as any[]) {
+          upsertIntoMap(row.client_name, row.client_phone, {
+            created_at: row.created_at,
+            source: 'history',
+          });
+        }
+      }
+
+      if (!schedRes.error && schedRes.data) {
+        for (const row of schedRes.data as any[]) {
+          upsertIntoMap(row.client_name, row.client_phone, {
+            created_at: row.created_at,
+            source: 'history',
+          });
+        }
+      }
+    } catch {
+      // Ignora erro de rede e complementa com cache local
+    }
+  }
+
+  // 3. Complementa com histórico local do Dexie (offline_work_logs e scheduled_services)
+  const localLogs = await db.offline_work_logs.toArray();
+  for (const log of localLogs) {
+    upsertIntoMap(log.client_name, log.client_phone, {
+      created_at: log.created_at,
+      source: 'history',
+    });
+  }
+
+  const localSchedules = await db.scheduled_services.toArray();
+  for (const sched of localSchedules) {
+    upsertIntoMap(sched.client_name, sched.client_phone, {
+      created_at: sched.created_at,
+      source: 'history',
+    });
+  }
+
+  return Array.from(consolidatedMap.values()).sort((a, b) =>
+    a.name.localeCompare(b.name, 'pt-BR')
+  );
+}
+
+/**
+ * 6.1. Cadastra ou atualiza um cliente na tabela `clients` do Supabase e no cache local
+ */
+export async function saveAdminClient(clientData: {
+  id?: string;
+  name: string;
+  phone?: string | null;
+}): Promise<{ success: boolean; client?: Client; error?: string }> {
+  try {
+    const cleanName = (clientData.name || '').trim();
+    if (!cleanName) {
+      return { success: false, error: 'Informe o nome do cliente.' };
+    }
+
+    const cleanPhone =
+      clientData.phone && clientData.phone.trim().length > 0
+        ? applyPhoneMask(clientData.phone.trim())
+        : null;
+    const now = new Date().toISOString();
+    const online =
+      typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
+
+    // Remove da lista de ocultos caso estivesse desativado anteriormente
+    const removedKeys = getRemovedClientKeys();
+    removedKeys.delete(cleanName.toLowerCase());
+    saveRemovedClientKeys(removedKeys);
+
+    let savedClient: Client | null = null;
+
+    if (online) {
+      if (clientData.id && isValidUuid(clientData.id)) {
+        const { data, error } = await supabase
+          .from('clients')
+          .update({ name: cleanName, phone: cleanPhone, is_active: true })
+          .eq('id', clientData.id)
+          .select()
+          .single();
+
+        if (!error && data) {
+          savedClient = {
+            ...(data as Client),
+            source: 'clients',
+          };
+        }
+      } else {
+        const { data, error } = await supabase
+          .from('clients')
+          .insert({ name: cleanName, phone: cleanPhone, is_active: true })
+          .select()
+          .single();
+
+        if (!error && data) {
+          savedClient = {
+            ...(data as Client),
+            source: 'clients',
+          };
+        }
+      }
+    }
+
+    if (!savedClient) {
+      const localId =
+        clientData.id && isValidUuid(clientData.id)
+          ? clientData.id
+          : typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : '00000000-0000-4000-8000-' + String(Date.now()).padStart(12, '0');
+
+      savedClient = {
+        id: localId,
+        name: cleanName,
+        phone: cleanPhone,
+        is_active: true,
+        created_at: now,
+        source: 'clients',
+      };
+    }
+
+    await db.cached_clients.put(savedClient);
+    return { success: true, client: savedClient };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Falha ao salvar cliente';
+    return { success: false, error: msg };
+  }
+}
+
+/**
+ * 6.2. Remove / desativa um cliente no Supabase e na listagem consolidada
+ */
+export async function deleteAdminClient(client: {
+  id: string;
+  name: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    const cleanName = (client.name || '').trim();
+    const key = cleanName.toLowerCase();
+
+    const online =
+      typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
+
+    if (online) {
+      try {
+        if (isValidUuid(client.id)) {
+          await supabase.from('clients').delete().eq('id', client.id);
+        } else if (cleanName) {
+          await supabase.from('clients').delete().ilike('name', cleanName);
+        }
+      } catch {
+        // Caso a tabela `clients` ainda não exista ou o cliente venha apenas do histórico
+      }
+    }
+
+    // Marca como inativo (is_active: false) no cache local do Dexie para que registros históricos com o mesmo nome também fiquem ocultos
+    const allLocal = await db.cached_clients.toArray();
+    let matchedLocal = false;
+    for (const item of allLocal) {
+      if (item.id === client.id || item.name.trim().toLowerCase() === key) {
+        await db.cached_clients.put({
+          ...item,
+          is_active: false,
+        });
+        matchedLocal = true;
+      }
+    }
+
+    if (!matchedLocal && cleanName) {
+      await db.cached_clients.put({
+        id: client.id || `deactivated-${key.replace(/\s+/g, '-')}`,
+        name: cleanName,
+        phone: null,
+        is_active: false,
+        created_at: new Date().toISOString(),
+        source: 'clients',
+      });
+    }
+
+    // Registra na lista de clientes removidos para não reaparecer a partir de registros antigos
+    if (key) {
+      const removedKeys = getRemovedClientKeys();
+      removedKeys.add(key);
+      saveRemovedClientKeys(removedKeys);
+    }
+
+    toast.success('Cliente removido!');
+    return { success: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Falha ao remover cliente';
+    toast.error(msg);
     return { success: false, error: msg };
   }
 }

@@ -579,6 +579,15 @@ export async function fetchScheduleMachines(): Promise<Machine[]> {
 export async function fetchKnownClients(): Promise<KnownClientSuggestion[]> {
   const map = new Map<string, KnownClientSuggestion>();
 
+  const cachedClients = await db.cached_clients.toArray();
+  for (const client of cachedClients) {
+    if (client.is_active === false) continue;
+    const cleanName = client.name?.trim();
+    if (!cleanName) continue;
+    const key = cleanName.toLowerCase();
+    map.set(key, { name: cleanName, phone: client.phone || null });
+  }
+
   const workLogs = await db.offline_work_logs.toArray();
   for (const log of workLogs) {
     const cleanName = log.client_name?.trim();

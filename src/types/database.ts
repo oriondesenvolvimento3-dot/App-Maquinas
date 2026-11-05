@@ -79,6 +79,18 @@ export interface Machine {
 }
 
 /**
+ * Cliente cadastrado ou consolidado do histórico (Meus Clientes)
+ */
+export interface Client {
+  id: string; // UUID da tabela `clients` ou identificador derivado
+  name: string;
+  phone?: string | null;
+  is_active?: boolean;
+  created_at?: string;
+  source?: 'clients' | 'history';
+}
+
+/**
  * Apontamento / Registro de serviço de máquina
  */
 export interface WorkLog {
@@ -327,6 +339,24 @@ export type Database = {
           agreed_rate?: number | null;
           notes?: string | null;
           status?: ScheduledServiceStatus;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      clients: {
+        Row: { [K in keyof Client]: Client[K] };
+        Insert: {
+          id?: string;
+          name: string;
+          phone?: string | null;
+          is_active?: boolean;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          phone?: string | null;
+          is_active?: boolean;
           created_at?: string;
         };
         Relationships: [];

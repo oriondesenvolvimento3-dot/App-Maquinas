@@ -215,6 +215,10 @@ const AppNavigator: React.FC = () => {
       return (
         <MachineManagement
           onBack={() => setCurrentRoute('admin-dashboard')}
+          onNavigateToDashboard={() => setCurrentRoute('admin-dashboard')}
+          onNavigateToServices={() => setCurrentRoute('admin-services')}
+          onNavigateToFinancial={() => setCurrentRoute('admin-history')}
+          onNavigateToAgenda={() => setCurrentRoute('admin-agenda')}
         />
       );
 

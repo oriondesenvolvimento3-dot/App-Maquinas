@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie';
-import type { OfflineWorkLog, Machine, Profile, ScheduledService } from '../types/database';
+import type { OfflineWorkLog, Machine, Profile, ScheduledService, Client } from '../types/database';
 
 /**
  * Banco de dados local IndexedDB com Dexie.js para arquitetura Offline-First
@@ -9,9 +9,10 @@ export class RetroscaveDexieDB extends Dexie {
   // Tabela local de apontamentos de horas realizados no dispositivo
   offline_work_logs!: Table<OfflineWorkLog, number>;
 
-  // Tabelas de cache local para seleção de máquinas e operadores em modo offline
+  // Tabelas de cache local para seleção de máquinas, operadores e clientes em modo offline
   cached_machines!: Table<Machine, string>;
   cached_profiles!: Table<Profile, string>;
+  cached_clients!: Table<Client, string>;
 
   // Tabela de agendamentos de serviços (Agenda Administrativa)
   scheduled_services!: Table<ScheduledService, number>;
@@ -58,6 +59,19 @@ export class RetroscaveDexieDB extends Dexie {
       offline_work_logs: '++id, server_id, machine_id, operator_id, service_date, sync_status, status, created_at',
       cached_machines: 'id, name, active',
       cached_profiles: 'id, role',
+      scheduled_services:
+        '++id, server_id, scheduled_date, status, client_name, machine_id, operator_id, sync_status, created_at',
+    });
+
+    /**
+     * Definição de esquema da versão 5:
+     * - Adiciona tabela 'cached_clients' para o módulo Meus Clientes
+     */
+    this.version(5).stores({
+      offline_work_logs: '++id, server_id, machine_id, operator_id, service_date, sync_status, status, created_at',
+      cached_machines: 'id, name, active',
+      cached_profiles: 'id, role',
+      cached_clients: 'id, name, is_active',
       scheduled_services:
         '++id, server_id, scheduled_date, status, client_name, machine_id, operator_id, sync_status, created_at',
     });
@@ -225,11 +239,18 @@ export async function setCachedProfiles(profiles: Profile[]): Promise<void> {
 export async function clearAllLocalData(): Promise<void> {
   await db.transaction(
     'rw',
-    [db.offline_work_logs, db.cached_machines, db.cached_profiles, db.scheduled_services],
+    [
+      db.offline_work_logs,
+      db.cached_machines,
+      db.cached_profiles,
+      db.cached_clients,
+      db.scheduled_services,
+    ],
     async () => {
       await db.offline_work_logs.clear();
       await db.cached_machines.clear();
       await db.cached_profiles.clear();
+      await db.cached_clients.clear();
       await db.scheduled_services.clear();
     }
   );
