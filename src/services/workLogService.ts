@@ -12,6 +12,7 @@ import {
 } from '../utils/formatters';
 import type { Machine, OfflineWorkLog, BillingUnit } from '../types/database';
 import { getStoredMachineBillingUnits } from './adminService';
+import { SYNC_COMPLETE_EVENT } from './syncService';
 
 export { formatTimeHHMM, calculateTotalHours };
 
@@ -198,6 +199,8 @@ export function validateWorkLogInput(data: Partial<WorkLogFormData>): Validation
 
 /**
  * Consulta o serviço atualmente em andamento de um operador (no Dexie ou no Supabase).
+ * Filtra estritamente por status em andamento ('em_andamento' ou 'in_progress').
+ * Registros com status 'pendente', 'aprovado', 'rejeitado', 'completed' NUNCA são considerados ativos.
  */
 export async function getActiveWorkLogForOperator(
   operatorId: string,
@@ -208,7 +211,9 @@ export async function getActiveWorkLogForOperator(
   // 1. Primeiro verifica no Dexie (IndexedDB local)
   const localActive = await getActiveWorkLogInDexie(operatorId);
   if (localActive) {
-    return localActive;
+    if (localActive.status === 'em_andamento' || (localActive.status as any) === 'in_progress') {
+      return localActive;
+    }
   }
 
   // 2. Se online e configurado com o Supabase, verifica se há serviço ativo na nuvem
@@ -219,12 +224,31 @@ export async function getActiveWorkLogForOperator(
         .from('work_logs')
         .select('*, machine:machines(name)')
         .eq('operator_id', operatorId)
-        .eq('status', 'em_andamento')
+        .in('status', ['em_andamento', 'in_progress'] as any)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
       if (!error && data) {
+        // Validação estrita: se não for em andamento, descarta
+        if (data.status !== 'em_andamento' && (data.status as any) !== 'in_progress') {
+          return null;
+        }
+
+        // Verifica se esse server_id já existe no Dexie local
+        const existingLocal = await db.offline_work_logs
+          .where('server_id')
+          .equals(data.id)
+          .first();
+
+        if (existingLocal) {
+          // Se já foi finalizado localmente (pendente, aprovado, etc.), NÃO é ativo!
+          if (existingLocal.status !== 'em_andamento' && (existingLocal.status as any) !== 'in_progress') {
+            return null;
+          }
+          return existingLocal;
+        }
+
         // Salva no Dexie local para garantir resiliência offline
         const machineName = (data.machine as any)?.name || 'Retroescavadeira';
         const now = new Date().toISOString();
@@ -389,8 +413,28 @@ export async function finishWorkLog(
   const startTimeStr = formData.start_time || formatTimeHHMM(startedIso);
   const online = isOnline ?? (typeof navigator !== 'undefined' && navigator.onLine);
 
-  // 1. Salva primeiro no banco local Dexie com synced: false
+  // Limpeza preventiva de cache no localStorage
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      window.localStorage.removeItem('active_service_id');
+      window.localStorage.removeItem('running_service');
+      window.localStorage.removeItem('active_work_log');
+      window.localStorage.removeItem('retroscave_active_service');
+    } catch {}
+  }
+
+  // 1. Resolução do ID local alvo no Dexie
   let targetLocalId: number | undefined = formData.localId;
+  if (!targetLocalId && formData.serverId) {
+    const byServer = await db.offline_work_logs.where('server_id').equals(formData.serverId).first();
+    if (byServer?.id) targetLocalId = byServer.id;
+  }
+  if (!targetLocalId && formData.operator_id) {
+    const activeLocal = await getActiveWorkLogInDexie(formData.operator_id);
+    if (activeLocal?.id) targetLocalId = activeLocal.id;
+  }
+
+  // 2. Salva o registro finalizado no banco local Dexie com status estrito 'pendente'
   try {
     const isKm = formData.billing_unit === 'km';
     const kmInitial = formData.km_initial ?? (isKm ? formData.start_hours : undefined);
@@ -443,6 +487,25 @@ export async function finishWorkLog(
       });
     }
 
+    // Limpeza profunda no Dexie: remove ou atualiza quaisquer outros registros 'em_andamento' do operador
+    const remainingActive = await db.offline_work_logs
+      .filter(
+        (l) =>
+          l.operator_id === formData.operator_id &&
+          (l.status === 'em_andamento' || (l.status as any) === 'in_progress')
+      )
+      .toArray();
+
+    for (const stale of remainingActive) {
+      if (stale.id && stale.id !== targetLocalId) {
+        if (stale.client_name === 'Em andamento' || !stale.total_hours) {
+          await db.offline_work_logs.delete(stale.id);
+        } else {
+          await db.offline_work_logs.update(stale.id, { status: 'pendente' });
+        }
+      }
+    }
+
     await db.cached_machines.update(formData.machine_id, {
       current_hours: formData.end_hours,
     });
@@ -451,11 +514,31 @@ export async function finishWorkLog(
     return { success: false, error: message };
   }
 
-  // 2. Se houver conexão com a internet (navigator.onLine === true), envia imediatamente ao Supabase
+  // 3. Se houver conexão com a internet (navigator.onLine === true), envia imediatamente ao Supabase
+  let resolvedServerId: string | null | undefined = formData.serverId;
+
   if (online && isSupabaseConfigured()) {
     try {
-      if (formData.serverId) {
-        // Já existe no servidor -> Atualiza
+      // Se não temos serverId explícito, busca se já existia registro em andamento no Supabase
+      if (!resolvedServerId) {
+        try {
+          const { data: serverActive } = await supabase
+            .from('work_logs')
+            .select('id')
+            .eq('operator_id', formData.operator_id)
+            .in('status', ['em_andamento', 'in_progress'] as any)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (serverActive?.id) {
+            resolvedServerId = serverActive.id;
+          }
+        } catch {}
+      }
+
+      if (resolvedServerId) {
+        // Já existe no servidor -> Atualiza com status 'pendente'
         const { error } = await supabase
           .from('work_logs')
           .update({
@@ -468,21 +551,20 @@ export async function finishWorkLog(
             status: 'pendente',
             updated_at: now,
           })
-          .eq('id', formData.serverId);
+          .eq('id', resolvedServerId);
 
         if (!error) {
           if (targetLocalId) {
             await db.offline_work_logs.update(targetLocalId, {
+              server_id: resolvedServerId,
               sync_status: 'synced',
               synced: true,
               synced_at: now,
             });
           }
-
-          return { success: true, localId: targetLocalId, serverId: formData.serverId };
         }
       } else {
-        // Não existia no servidor (foi iniciado offline) -> Insere novo registro completo (SEM started_at nem total_hours)
+        // Não existia no servidor (foi iniciado offline) -> Insere novo registro completo com status 'pendente'
         const payload: Record<string, any> = {
           machine_id: formData.machine_id,
           operator_id: formData.operator_id,
@@ -503,6 +585,7 @@ export async function finishWorkLog(
           .single();
 
         if (!error && data?.id) {
+          resolvedServerId = data.id;
           if (targetLocalId) {
             await db.offline_work_logs.update(targetLocalId, {
               server_id: data.id,
@@ -511,17 +594,34 @@ export async function finishWorkLog(
               synced_at: now,
             });
           }
-
-          return { success: true, localId: targetLocalId, serverId: data.id };
         }
       }
+
+      // Limpeza de segurança no Supabase: assegura que nenhum registro órfão deste operador permaneça como 'em_andamento'
+      try {
+        await supabase
+          .from('work_logs')
+          .update({ status: 'pendente', updated_at: now })
+          .eq('operator_id', formData.operator_id)
+          .in('status', ['em_andamento', 'in_progress'] as any);
+      } catch {}
     } catch (err) {
       console.warn('[WorkLogService] Falha online ao finalizar serviço, mantido no Dexie (synced: false):', err);
     }
   }
 
-  // Se estiver offline ou houve oscilação de sinal, mantém no Dexie com synced: false silenciosamente
-  return { success: true, localId: targetLocalId };
+  // Notifica componentes e ouvintes para revalidação imediata do estado
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    try {
+      window.dispatchEvent(
+        new CustomEvent(SYNC_COMPLETE_EVENT, {
+          detail: { syncedCount: 1, message: 'Serviço finalizado com sucesso.' },
+        })
+      );
+    } catch {}
+  }
+
+  return { success: true, localId: targetLocalId, serverId: resolvedServerId || undefined };
 }
 
 /**
@@ -667,6 +767,26 @@ export async function cancelWorkLog(
       if (error) {
         console.warn('[WorkLogService] Aviso ao remover serviço cancelado do Supabase:', error.message);
       }
+    }
+
+    // Limpeza preventiva de cache no localStorage
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        window.localStorage.removeItem('active_service_id');
+        window.localStorage.removeItem('running_service');
+        window.localStorage.removeItem('active_work_log');
+        window.localStorage.removeItem('retroscave_active_service');
+      } catch {}
+    }
+
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+      try {
+        window.dispatchEvent(
+          new CustomEvent(SYNC_COMPLETE_EVENT, {
+            detail: { syncedCount: 1, message: 'Serviço cancelado.' },
+          })
+        );
+      } catch {}
     }
 
     return { success: true };

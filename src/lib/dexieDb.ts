@@ -175,17 +175,25 @@ export async function getAllOfflineWorkLogs(): Promise<OfflineWorkLog[]> {
 }
 
 /**
- * Retorna o serviço atualmente em andamento de um operador no Dexie
+ * Retorna o serviço atualmente em andamento de um operador no Dexie.
+ * Filtra estritamente por status em andamento ('em_andamento' ou 'in_progress').
+ * Registros com status 'pendente', 'pending', 'aprovado', 'approved', 'rejeitado', 'completed'
+ * NUNCA são considerados ativos.
  */
 export async function getActiveWorkLogInDexie(
   operatorId: string
 ): Promise<OfflineWorkLog | undefined> {
-  const allInProgress = await db.offline_work_logs
-    .where('status')
-    .equals('em_andamento')
-    .toArray();
+  const allLogs = await db.offline_work_logs.toArray();
+  const activeLogs = allLogs.filter(
+    (log) =>
+      log.operator_id === operatorId &&
+      (log.status === 'em_andamento' || (log.status as any) === 'in_progress')
+  );
 
-  return allInProgress.find((log) => log.operator_id === operatorId);
+  if (activeLogs.length === 0) return undefined;
+
+  // Retorna o mais recente
+  return activeLogs.sort((a, b) => (b.id || 0) - (a.id || 0))[0];
 }
 
 /**

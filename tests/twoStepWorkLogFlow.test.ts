@@ -254,5 +254,34 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
       );
       expect(restartRes.success).toBe(true);
     });
+
+    it('deve garantir que serviços com status pendente ou aprovado não sejam considerados ativos', async () => {
+      // Cria apontamento finalizado com status pendente
+      await db.offline_work_logs.add({
+        machine_id: 'mach-cat-01',
+        machine_name: 'Retroescavadeira CAT 416E',
+        operator_id: 'op-finished-01',
+        operator_name: 'Lucas Operador',
+        client_name: 'Fazenda Estrela',
+        service_date: '2026-10-30',
+        start_hours: 100,
+        end_hours: 105,
+        total_hours: 5,
+        observations: null,
+        created_at: new Date().toISOString(),
+        status: 'pendente',
+        sync_status: 'synced',
+        synced: true,
+      });
+
+      const activePending = await getActiveWorkLogForOperator('op-finished-01', false);
+      expect(activePending).toBeNull();
+
+      // Atualiza para aprovado
+      await db.offline_work_logs.where('operator_id').equals('op-finished-01').modify({ status: 'aprovado' });
+
+      const activeApproved = await getActiveWorkLogForOperator('op-finished-01', false);
+      expect(activeApproved).toBeNull();
+    });
   });
 });

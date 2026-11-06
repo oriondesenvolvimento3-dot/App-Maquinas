@@ -48,6 +48,7 @@ const AppNavigator: React.FC = () => {
   const [activeServiceToFinish, setActiveServiceToFinish] = useState<OfflineWorkLog | null>(null);
   const [lastRegisteredService, setLastRegisteredService] = useState<WorkLogFormData | null>(null);
   const [selectedServiceId, setSelectedServiceId] = useState<string | number | null>(null);
+  const [homeKey, setHomeKey] = useState<number>(0);
 
   // 1. Carregamento inicial da sessão
   if (loading) {
@@ -77,6 +78,7 @@ const AppNavigator: React.FC = () => {
         <NewServiceForm
           onBack={() => setCurrentRoute('home')}
           onSuccess={() => {
+            setHomeKey((k) => k + 1);
             setCurrentRoute('home');
           }}
         />
@@ -86,6 +88,7 @@ const AppNavigator: React.FC = () => {
       if (!activeServiceToFinish) {
         return (
           <OperatorHome
+            key={homeKey}
             onNavigateToNewService={() => setCurrentRoute('new-service')}
             onNavigateToFinishService={(activeLog) => {
               setActiveServiceToFinish(activeLog);
@@ -98,10 +101,15 @@ const AppNavigator: React.FC = () => {
       return (
         <FinishServiceForm
           activeLog={activeServiceToFinish}
-          onBack={() => setCurrentRoute('home')}
+          onBack={() => {
+            setActiveServiceToFinish(null);
+            setHomeKey((k) => k + 1);
+            setCurrentRoute('home');
+          }}
           onSuccess={(formData) => {
             setActiveServiceToFinish(null);
             setLastRegisteredService(formData);
+            setHomeKey((k) => k + 1);
             setCurrentRoute('service-success');
           }}
         />
@@ -111,6 +119,7 @@ const AppNavigator: React.FC = () => {
       if (!lastRegisteredService) {
         return (
           <OperatorHome
+            key={homeKey}
             onNavigateToNewService={() => setCurrentRoute('new-service')}
             onNavigateToFinishService={(activeLog) => {
               setActiveServiceToFinish(activeLog);
@@ -124,7 +133,9 @@ const AppNavigator: React.FC = () => {
         <ServiceSuccess
           serviceData={lastRegisteredService}
           onBackToHome={() => {
+            setActiveServiceToFinish(null);
             setLastRegisteredService(null);
+            setHomeKey((k) => k + 1);
             setCurrentRoute('home');
           }}
         />
@@ -227,6 +238,7 @@ const AppNavigator: React.FC = () => {
     default:
       return (
         <OperatorHome
+          key={homeKey}
           onNavigateToNewService={() => setCurrentRoute('new-service')}
           onNavigateToFinishService={(activeLog) => {
             setActiveServiceToFinish(activeLog);

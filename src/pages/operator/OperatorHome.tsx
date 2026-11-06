@@ -51,14 +51,28 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
 
   /**
    * Consulta se há serviço ativo 'em_andamento' para este operador
+   * Filtro estrito: apenas status em andamento é aceito.
+   * Registros com status 'pendente', 'aprovado', 'rejeitado', 'completed'
+   * NUNCA ativam o card de serviço em andamento.
    */
   const checkActiveService = useCallback(async () => {
-    if (!operatorId) return;
+    if (!operatorId) {
+      setActiveService(null);
+      return;
+    }
     try {
       const active = await getActiveWorkLogForOperator(operatorId, isOnline);
-      setActiveService(active);
+      if (
+        active &&
+        (active.status === 'em_andamento' || (active.status as any) === 'in_progress')
+      ) {
+        setActiveService(active);
+      } else {
+        setActiveService(null);
+      }
     } catch (err) {
       console.warn('[OperatorHome] Falha ao verificar serviço ativo:', err);
+      setActiveService(null);
     }
   }, [operatorId, isOnline]);
 
