@@ -9,20 +9,28 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'robots.txt', 'apple-touch-icon.png'],
+      includeAssets: ['apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png'],
       manifest: {
+        id: '/',
         name: 'RETROSCAVE',
         short_name: 'RETROSCAVE',
         description: 'Gestão e apontamento de maquinário pesado',
+        lang: 'pt-BR',
         theme_color: '#0f172a',
         background_color: '#f8fafc',
         display: 'standalone',
         orientation: 'portrait',
         start_url: '/',
+        scope: '/',
         icons: [
           {
             src: '/pwa-192x192.png',
             sizes: '192x192',
+            type: 'image/png',
+          },
+          {
+            src: '/apple-touch-icon.png',
+            sizes: '180x180',
             type: 'image/png',
           },
           {
