@@ -180,7 +180,7 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
               className="flex items-center gap-1.5 text-xs font-bold text-[#0F172A] uppercase tracking-wider"
             >
               <Truck className="w-4 h-4 text-[#F59E0B]" />
-              <span>Máquina / Veículo *</span>
+              <span>Nome / Máquina *</span>
             </label>
 
             {isLoadingMachines ? (
