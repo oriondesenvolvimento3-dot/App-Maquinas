@@ -196,6 +196,8 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
       expect(finishedLog).toBeDefined();
       expect(finishedLog?.status).toBe('pendente');
       expect(finishedLog?.client_name).toBe('Construtora Horizonte');
+      expect(finishedLog?.start_hours).toBe(1500);
+      expect(finishedLog?.end_hours).toBe(1506.5);
       expect(finishedLog?.total_hours).toBe(6.5);
       expect(finishedLog?.client_phone).toBe('(11) 98765-4321');
       expect(finishedLog?.finished_at).toBeDefined();
@@ -217,6 +219,50 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
         false
       );
       expect(nextService.success).toBe(true);
+    });
+
+    it('deve preservar estritamente o horímetro inicial sem permitir que seja sobrescrito pelo horímetro final', async () => {
+      // Check-in com horímetro 1200.0
+      const startRes = await startWorkLog(
+        {
+          machine_id: 'mach-cat-01',
+          machine_name: 'Retroescavadeira CAT 416E',
+          operator_id: 'op-preserva-horimetro',
+          operator_name: 'Marcos Operador',
+          start_hours: 1200.0,
+        },
+        false
+      );
+      expect(startRes.success).toBe(true);
+
+      const active = await getActiveWorkLogForOperator('op-preserva-horimetro', false);
+      expect(active).toBeDefined();
+      expect(active?.start_hours).toBe(1200.0);
+
+      // Check-out com horímetro final 1208.5
+      const finishRes = await finishWorkLog(
+        {
+          localId: active!.id,
+          machine_id: active!.machine_id,
+          machine_name: active!.machine_name,
+          operator_id: active!.operator_id,
+          operator_name: active!.operator_name,
+          client_name: 'Fazenda Santa Maria',
+          service_date: '2026-11-06',
+          start_hours: 1200.0,
+          end_hours: 1208.5,
+          observations: 'Abertura de vala',
+        },
+        false
+      );
+      expect(finishRes.success).toBe(true);
+
+      const saved = await db.offline_work_logs.get(active!.id!);
+      expect(saved).toBeDefined();
+      // O horímetro inicial NUNCA pode ter sido sobrescrito com 1208.5
+      expect(saved?.start_hours).toBe(1200.0);
+      expect(saved?.end_hours).toBe(1208.5);
+      expect(saved?.total_hours).toBe(8.5);
     });
 
     it('deve cancelar um serviço em andamento descartando os dados de início e liberando novo check-in', async () => {

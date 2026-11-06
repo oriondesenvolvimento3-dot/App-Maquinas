@@ -241,8 +241,24 @@ export async function fetchAdminWorkLogs(
               item.hourly_rate ?? localMatch?.hourly_rate ?? machine?.hourly_rate ?? 0
             );
             const rawHours = Number(item.total_hours ?? 0);
-            const startH = Number(item.start_hours ?? 0);
-            const endH = Number(item.end_hours ?? 0);
+            const startH = Number(
+              item.start_hours ??
+              item.initial_horimeter ??
+              item.horimeter_initial ??
+              item.km_initial ??
+              localMatch?.start_hours ??
+              localMatch?.km_initial ??
+              0
+            );
+            const endH = Number(
+              item.end_hours ??
+              item.final_horimeter ??
+              item.horimeter_final ??
+              item.km_final ??
+              localMatch?.end_hours ??
+              localMatch?.km_final ??
+              0
+            );
             const totalHours =
               rawHours > 0 ? rawHours : calculateTotalHours(startH, endH);
             const totalAmount =
@@ -333,8 +349,20 @@ export async function fetchAdminWorkLogs(
       const status = log.status || 'pendente';
       const machine = machineMap.get(log.machine_id);
       const rate = log.hourly_rate || machine?.hourly_rate || 0;
-      const startH = Number(log.start_hours ?? 0);
-      const endH = Number(log.end_hours ?? 0);
+      const startH = Number(
+        log.start_hours ??
+        (log as any).initial_horimeter ??
+        (log as any).horimeter_initial ??
+        log.km_initial ??
+        0
+      );
+      const endH = Number(
+        log.end_hours ??
+        (log as any).final_horimeter ??
+        (log as any).horimeter_final ??
+        log.km_final ??
+        0
+      );
       const rawHours = Number(log.total_hours ?? 0);
       const totalHours =
         rawHours > 0 ? rawHours : calculateTotalHours(startH, endH);

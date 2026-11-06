@@ -55,7 +55,15 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
 
   // Cálculo reativo das horas trabalhadas ou distância em KM
   const isKm = activeLog.billing_unit === 'km';
-  const numStart = Number(activeLog.start_hours || 0);
+  const numStart = Number(
+    activeLog.start_hours ??
+    (activeLog as any).initial_horimeter ??
+    (activeLog as any).horimeter_initial ??
+    (activeLog as any).km_initial ??
+    (activeLog as any).initial_meter ??
+    (activeLog as any).initial_hour ??
+    0
+  );
   const numEnd = parseFloat(endHours.replace(',', '.')) || 0;
   const calculatedHours = calculateTotalHours(numStart, numEnd);
   const calculatedKm = numEnd >= numStart ? Number((numEnd - numStart).toFixed(1)) : 0;

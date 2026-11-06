@@ -89,8 +89,22 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
         setServiceDateInput((found.service_date || '').split('T')[0]);
         setMachineIdInput(found.machine_id || '');
         setMachineNameInput(found.machine_name || '');
-        setStartHoursInput(String(found.start_hours ?? 0));
-        setEndHoursInput(String(found.end_hours ?? 0));
+        const initialHorometer =
+          found.start_hours ??
+          (found as any).km_initial ??
+          (found as any).initial_horimeter ??
+          (found as any).horimeter_initial ??
+          (found as any).initial_meter ??
+          0;
+        const finalHorometer =
+          found.end_hours ??
+          (found as any).km_final ??
+          (found as any).final_horimeter ??
+          (found as any).horimeter_final ??
+          (found as any).final_meter ??
+          0;
+        setStartHoursInput(String(initialHorometer));
+        setEndHoursInput(String(finalHorometer));
         setHourlyRateInput(String(found.hourly_rate ?? 0));
         setObservationsInput(found.observations || '');
         setPaymentStatus(found.payment_status || 'a_receber');

@@ -111,8 +111,23 @@ export function sanitizeWorkLogForSupabase(log: Partial<OfflineWorkLog> & Record
     operator_id: log.operator_id!,
     client_name: log.client_name ? String(log.client_name).trim() : 'Cliente a definir',
     service_date: log.service_date!,
-    start_hours: Number(log.start_hours ?? log.initial_hour ?? 0),
-    end_hours: Number(log.end_hours ?? log.final_hour ?? log.start_hours ?? 0),
+    start_hours: Number(
+      log.start_hours ??
+      log.initial_hour ??
+      (log as any).initial_horimeter ??
+      (log as any).horimeter_initial ??
+      (log as any).km_initial ??
+      0
+    ),
+    end_hours: Number(
+      log.end_hours ??
+      log.final_hour ??
+      (log as any).final_horimeter ??
+      (log as any).horimeter_final ??
+      (log as any).km_final ??
+      log.start_hours ??
+      0
+    ),
     observations: log.observations?.trim() || log.notes?.trim() || null,
     status: log.status || 'pendente',
     client_phone: log.client_phone ? String(log.client_phone).trim() : null,
@@ -265,8 +280,22 @@ export async function syncPendingServices(): Promise<number> {
             client_name: log.client_name ? String(log.client_name).trim() : 'Cliente a definir',
             client_phone: log.client_phone ? String(log.client_phone).trim() : null,
             service_date: log.service_date,
-            start_hours: Number(log.start_hours ?? (log as any).initial_hour ?? 0),
-            end_hours: Number(log.end_hours ?? (log as any).final_hour ?? 0),
+            start_hours: Number(
+              log.start_hours ??
+              (log as any).initial_hour ??
+              (log as any).initial_horimeter ??
+              (log as any).horimeter_initial ??
+              (log as any).km_initial ??
+              0
+            ),
+            end_hours: Number(
+              log.end_hours ??
+              (log as any).final_hour ??
+              (log as any).final_horimeter ??
+              (log as any).horimeter_final ??
+              (log as any).km_final ??
+              0
+            ),
             observations: log.observations?.trim() || (log as any).notes?.trim() || null,
             status: log.status || 'pendente',
             updated_at: new Date().toISOString(),

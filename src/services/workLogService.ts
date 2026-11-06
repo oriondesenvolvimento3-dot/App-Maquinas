@@ -453,6 +453,7 @@ export async function finishWorkLog(
         client_name: formData.client_name.trim(),
         client_phone: phone,
         service_date: formData.service_date,
+        start_hours: formData.start_hours,
         end_hours: formData.end_hours,
         total_hours,
         ...(formData.billing_unit ? { billing_unit: formData.billing_unit } : {}),
