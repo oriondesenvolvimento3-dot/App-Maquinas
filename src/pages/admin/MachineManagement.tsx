@@ -620,13 +620,13 @@ export const MachineManagement: React.FC<MachineManagementProps> = ({
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-bold text-[#0F172A]">Nome da Máquina</label>
+                <label className="text-xs font-bold text-[#0F172A]">Nome do Operador</label>
                 <input
                   type="text"
                   required
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
-                  placeholder={formBillingUnit === 'km' ? 'Ex: Guincho Plataforma 01' : 'Ex: Retroescavadeira 04'}
+                  placeholder="Ex: Pedro, João, Samuel..."
                   className="w-full h-11 px-3.5 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-sm font-medium text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
                 />
               </div>
