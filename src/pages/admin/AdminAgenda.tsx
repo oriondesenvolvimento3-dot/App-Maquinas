@@ -22,7 +22,6 @@ import { SYNC_COMPLETE_EVENT, toast } from '../../services/syncService';
 import {
   formatDateBr,
   applyPhoneMask,
-  formatTimeHHMM,
   formatCurrencyBRL,
 } from '../../utils/formatters';
 import { AdminBottomNav } from '../../components/AdminBottomNav';
@@ -392,22 +391,16 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
     });
   }, [schedules, activeTab, searchQuery, filterDate, todayStr]);
 
-  // Calcula posição da linha vermelha de hora atual (entre 07:00 e 18:00)
-  const currentTimeIndicator = useMemo(() => {
+  // Indicador horizontal sutil e proporcional do horário atual (apenas hoje, entre 07:00 e 17:00)
+  const currentTimelinePercent = useMemo<number | null>(() => {
+    if (selectedDate !== todayStr) return null;
     const now = new Date();
-    const hours = now.getHours();
-    const minutes = now.getMinutes();
-    const totalMinutes = hours * 60 + minutes;
+    const totalMinutes = now.getHours() * 60 + now.getMinutes();
     const startMin = 7 * 60; // 07:00
-    const endMin = 18 * 60; // 18:00
-    const clamped = Math.max(startMin, Math.min(endMin, totalMinutes));
-    const percent = Math.round(((clamped - startMin) / (endMin - startMin)) * 100);
-    return {
-      timeLabel: formatTimeHHMM(now),
-      percent,
-      rawHours: hours,
-    };
-  }, [selectedDate]);
+    const endMin = 17 * 60; // 17:00
+    if (totalMinutes < startMin || totalMinutes > endMin) return null;
+    return Math.round(((totalMinutes - startMin) / (endMin - startMin)) * 100);
+  }, [selectedDate, todayStr]);
 
   // Navegação de Semana (< Anterior | Hoje | Próxima >)
   const handlePrevWeek = () => {
@@ -1058,16 +1051,10 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
 
             {/* GRADE DE HORÁRIOS E LINHA DO TEMPO DIÁRIA (07:00 às 17:00) */}
             <div className="w-full bg-white border border-[#E2E8F0] rounded-2xl p-3 sm:p-4 shadow-2xs relative overflow-hidden">
-              <div className="flex items-center justify-between gap-2 pb-2.5 mb-2 border-b border-[#F1F5F9]">
-                <span className="text-[10px] sm:text-[11px] font-extrabold uppercase tracking-wider text-[#64748B] truncate">
+              <div className="pb-2.5 mb-2 border-b border-[#F1F5F9]">
+                <span className="text-[10px] sm:text-[11px] font-extrabold uppercase tracking-wider text-[#64748B] block truncate">
                   Linha do Tempo Diária (07:00 – 17:00)
                 </span>
-                {selectedDate === todayStr && (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-red-600 shrink-0 whitespace-nowrap">
-                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                    Agora: {currentTimeIndicator.timeLabel}
-                  </span>
-                )}
               </div>
 
               {/* Faixa de Serviços de Período INTEGRAL (07:00 às 17:00) */}
@@ -1087,18 +1074,15 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
 
               {/* Linha do Tempo com Coluna de Horas Compacta à Esquerda */}
               <div className="relative space-y-0 w-full">
-                {/* Linha Vermelha de Horário Atual (apenas quando visualizando Hoje) */}
-                {selectedDate === todayStr && (
+                {/* Linha Horizontal Indicadora do Horário Atual (Discreta e Minimalista em Âmbar) */}
+                {currentTimelinePercent !== null && (
                   <div
-                    aria-label="Linha de horário atual"
-                    style={{ top: `${currentTimeIndicator.percent}%` }}
-                    className="absolute left-0 right-0 z-10 flex items-center pointer-events-none"
+                    aria-hidden="true"
+                    style={{ top: `${currentTimelinePercent}%` }}
+                    className="absolute left-0 right-0 z-10 flex items-center pointer-events-none -translate-y-1/2"
                   >
-                    <span className="w-2 h-2 rounded-full bg-red-500 ring-4 ring-red-500/20 shrink-0" />
-                    <div className="flex-1 h-[1.5px] bg-red-500/80" />
-                    <span className="ml-1 px-1.5 py-0.5 rounded bg-red-500 text-white text-[9px] font-extrabold">
-                      {currentTimeIndicator.timeLabel}
-                    </span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500/80 shrink-0" />
+                    <div className="flex-1 h-[1.5px] bg-amber-500/60" />
                   </div>
                 )}
 
