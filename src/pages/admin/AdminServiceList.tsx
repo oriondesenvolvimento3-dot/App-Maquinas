@@ -137,7 +137,7 @@ export const AdminServiceList: React.FC<AdminServiceListProps> = ({
         </div>
 
         {/* Pílulas de Filtros Horizontais */}
-        <div className="flex items-center gap-2 mt-4 overflow-x-auto pb-1 scrollbar-none">
+        <div className="flex items-center gap-2 mt-4 overflow-x-auto scrollbar-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] pb-1">
           <button
             type="button"
             onClick={() => setActiveFilter('todos')}

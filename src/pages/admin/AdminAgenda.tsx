@@ -936,7 +936,7 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
         ) : (
           /* FILTROS DO MODO LISTA GERAL */
           <div className="space-y-2.5 pt-0.5">
-            <div className="flex items-center gap-2 overflow-x-auto pb-0.5 scrollbar-none">
+            <div className="flex items-center gap-2 overflow-x-auto scrollbar-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] pb-0.5">
               <button
                 id="tab-agenda-proximos"
                 type="button"

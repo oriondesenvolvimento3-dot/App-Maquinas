@@ -14,7 +14,6 @@ import { openWhatsAppShare } from '../../utils/whatsappShare';
 import { formatDateBr, formatCurrencyBRL, formatTimeHHMM, formatDateISO } from '../../utils/formatters';
 import { AdminBottomNav } from '../../components/AdminBottomNav';
 import {
-  Calendar,
   Truck,
   FileDown,
   MessageCircle,
@@ -331,16 +330,12 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
   };
 
   return (
-    <div className="relative flex flex-col justify-between w-full max-w-md mx-auto min-h-screen overflow-y-auto bg-[#F8FAFC] shadow-2xl pb-24">
+    <div className="relative flex flex-col justify-between w-full max-w-md mx-auto min-h-screen overflow-y-auto bg-[#F8FAFC] shadow-2xl pb-36">
       
       {/* 1. CABEÇALHO */}
       <header className="px-6 pt-4 pb-3 bg-white border-b border-[#E2E8F0] sticky top-0 z-20">
-        <div className="flex items-center justify-between text-xs text-[#0F172A] mb-1 font-medium">
+        <div className="flex items-center justify-between text-xs text-[#64748B] mb-1 font-medium">
           <span>{formatTimeHHMM()}</span>
-          <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#64748B]">
-            <Calendar className="w-3.5 h-3.5 text-[#F59E0B]" />
-            <span>Gestão Financeira</span>
-          </div>
         </div>
 
         <h1 className="text-2xl font-extrabold text-[#0F172A] tracking-tight">
@@ -354,21 +349,10 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
         <div className="mt-3.5 space-y-2.5">
           {/* Barra de Atalhos Rápidos de Período (Pills / Botões) */}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[10px] font-bold text-[#64748B] uppercase tracking-wider">
-                Atalhos de Período:
-              </span>
-              {activePreset && (
-                <span className="text-[10px] font-semibold text-[#059669] flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#10B981]" />
-                  {activePreset === 'ultimos_30' && 'Últimos 30 dias'}
-                  {activePreset === 'este_mes' && 'Mês atual'}
-                  {activePreset === 'mes_anterior' && 'Mês anterior'}
-                  {activePreset === 'tudo' && 'Todo o histórico'}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5 -mx-1 px-1">
+            <span className="block text-[10px] font-bold text-[#64748B] uppercase tracking-wider mb-1.5">
+              Atalhos de Período:
+            </span>
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] pb-0.5 -mx-1 px-1">
               <button
                 type="button"
                 id="preset-btn-ultimos-30"
@@ -448,17 +432,18 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
             </div>
           </div>
 
-          {/* Seletor de Cliente e Status de Pagamento */}
-          <div className="grid grid-cols-1 gap-2">
-            <div className="relative">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none text-[#64748B]">
+          {/* Seletor de Cliente e Status de Pagamento (Lado a Lado) */}
+          <div className="grid grid-cols-2 gap-2.5">
+            <div className="relative min-w-0">
+              <div className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-[#64748B]">
                 <Users className="w-3.5 h-3.5" />
               </div>
               <select
                 id="select-client"
+                aria-label="Filtrar por Cliente"
                 value={selectedClient}
                 onChange={(e) => setSelectedClient(e.target.value)}
-                className="w-full h-9 pl-8 pr-7 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-xs font-bold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] appearance-none cursor-pointer"
+                className="w-full h-9 pl-7 pr-6 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-[11px] sm:text-xs font-bold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] appearance-none cursor-pointer truncate"
               >
                 <option value="todos">Todos os Clientes</option>
                 {uniqueClients.map((client) => (
@@ -467,13 +452,13 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
                   </option>
                 ))}
               </select>
-              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[#64748B] text-[10px]">
+              <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-[#64748B] text-[9px]">
                 ▼
               </div>
             </div>
 
-            <div className="relative">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none text-[#64748B]">
+            <div className="relative min-w-0">
+              <div className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-[#64748B]">
                 <BadgeDollarSign className="w-3.5 h-3.5" />
               </div>
               <select
@@ -481,13 +466,13 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
                 aria-label="Status de Pagamento"
                 value={selectedPaymentStatus}
                 onChange={(e) => setSelectedPaymentStatus(e.target.value as 'todos' | PaymentStatus)}
-                className="w-full h-9 pl-8 pr-7 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-xs font-bold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] appearance-none cursor-pointer"
+                className="w-full h-9 pl-7 pr-6 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-[11px] sm:text-xs font-bold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] appearance-none cursor-pointer truncate"
               >
                 <option value="todos">Todos os Pagamentos</option>
                 <option value="a_receber">A receber</option>
                 <option value="pago">Pago</option>
               </select>
-              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[#64748B] text-[10px]">
+              <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-[#64748B] text-[9px]">
                 ▼
               </div>
             </div>
@@ -496,7 +481,7 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
       </header>
 
       {/* 3. CORPO: CARDS DE RESUMO DO PERÍODO & LISTAGEM */}
-      <main className="flex-1 px-6 py-4 space-y-4">
+      <main className="flex-1 px-6 py-4 space-y-4 pb-36">
         
         {(pdfSuccessMessage || paymentToastMessage) && (
           <div
@@ -635,7 +620,7 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
       </main>
 
       {/* 4. BARRA DE AÇÕES RÁPIDAS (GERAR PDF E WHATSAPP) */}
-      <div className="fixed bottom-14 left-0 right-0 max-w-md mx-auto px-6 py-2.5 bg-white/95 backdrop-blur-xs border-t border-[#E2E8F0] z-20 flex flex-col gap-2">
+      <div className="fixed bottom-14 left-0 right-0 max-w-md mx-auto px-6 py-2 bg-white/95 backdrop-blur-xs border-t border-[#E2E8F0] z-20 flex flex-col gap-2">
         {isPdfMenuOpen && (
           <div
             role="menu"
@@ -696,9 +681,9 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
             aria-haspopup="menu"
             onClick={() => setIsPdfMenuOpen((prev) => !prev)}
             disabled={filteredServices.length === 0}
-            className="flex-1 h-12 bg-[#0F172A] hover:bg-[#1E293B] active:scale-[0.98] text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 h-10 bg-[#0F172A] hover:bg-[#1E293B] active:scale-[0.98] text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <FileDown className="w-4 h-4 text-[#FBBF24]" />
+            <FileDown className="w-3.5 h-3.5 text-[#FBBF24]" />
             <span>Gerar PDF</span>
           </button>
 
@@ -708,9 +693,9 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
             type="button"
             onClick={handleShareWhatsApp}
             disabled={filteredServices.length === 0}
-            className="flex-1 h-12 bg-[#16A34A] hover:bg-[#15803D] active:scale-[0.98] text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 h-10 bg-[#16A34A] hover:bg-[#15803D] active:scale-[0.98] text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <MessageCircle className="w-4 h-4 fill-white" />
+            <MessageCircle className="w-3.5 h-3.5 fill-white" />
             <span>WhatsApp</span>
           </button>
         </div>
