@@ -24,6 +24,8 @@ export interface StartServiceFormData {
   start_hours: number;
   billing_unit?: BillingUnit;
   km_initial?: number;
+  client_name?: string;
+  client_phone?: string | null;
 }
 
 export interface FinishServiceFormData {
@@ -259,7 +261,7 @@ export async function getActiveWorkLogForOperator(
           machine_name: machineName,
           operator_id: data.operator_id,
           operator_name: 'Operador',
-          client_name: data.client_name || 'Em andamento',
+          client_name: (data.client_name && data.client_name !== 'Em andamento') ? data.client_name : 'A definir',
           client_phone: data.client_phone || null,
           service_date: data.service_date,
           start_hours: Number(data.start_hours),
@@ -318,6 +320,9 @@ export async function startWorkLog(
   const startTimeStr = formatTimeHHMM(nowDate);
   const todayStr = now.split('T')[0];
 
+  const targetClient = formData.client_name?.trim() || 'A definir';
+  const targetPhone = formData.client_phone?.trim() || null;
+
   // 1. Salva primeiro no banco local Dexie com synced: false
   let localId: number;
   try {
@@ -326,7 +331,8 @@ export async function startWorkLog(
       machine_name: formData.machine_name,
       operator_id: formData.operator_id,
       operator_name: formData.operator_name,
-      client_name: 'Em andamento',
+      client_name: targetClient,
+      client_phone: targetPhone,
       service_date: todayStr,
       start_hours: formData.start_hours,
       end_hours: formData.start_hours,
@@ -352,7 +358,8 @@ export async function startWorkLog(
       const payload = {
         machine_id: formData.machine_id,
         operator_id: formData.operator_id,
-        client_name: 'Em andamento',
+        client_name: targetClient,
+        client_phone: targetPhone,
         service_date: todayStr,
         start_hours: formData.start_hours,
         end_hours: formData.start_hours,
@@ -498,10 +505,17 @@ export async function finishWorkLog(
 
     for (const stale of remainingActive) {
       if (stale.id && stale.id !== targetLocalId) {
-        if (stale.client_name === 'Em andamento' || !stale.total_hours) {
+        if (
+          stale.client_name === 'Em andamento' ||
+          stale.client_name === 'A definir' ||
+          !stale.total_hours
+        ) {
           await db.offline_work_logs.delete(stale.id);
         } else {
-          await db.offline_work_logs.update(stale.id, { status: 'pendente' });
+          await db.offline_work_logs.update(stale.id, {
+            status: 'pendente',
+            client_name: formData.client_name.trim(),
+          });
         }
       }
     }
@@ -601,7 +615,11 @@ export async function finishWorkLog(
       try {
         await supabase
           .from('work_logs')
-          .update({ status: 'pendente', updated_at: now })
+          .update({
+            status: 'pendente',
+            client_name: formData.client_name.trim(),
+            updated_at: now,
+          })
           .eq('operator_id', formData.operator_id)
           .in('status', ['em_andamento', 'in_progress'] as any);
       } catch {}

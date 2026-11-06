@@ -109,7 +109,7 @@ export function sanitizeWorkLogForSupabase(log: Partial<OfflineWorkLog> & Record
   const payload: WorkLogInsert = {
     machine_id: log.machine_id!,
     operator_id: log.operator_id!,
-    client_name: log.client_name ? String(log.client_name).trim() : '',
+    client_name: log.client_name ? String(log.client_name).trim() : 'Cliente a definir',
     service_date: log.service_date!,
     start_hours: Number(log.start_hours ?? log.initial_hour ?? 0),
     end_hours: Number(log.end_hours ?? log.final_hour ?? log.start_hours ?? 0),
@@ -262,7 +262,7 @@ export async function syncPendingServices(): Promise<number> {
         if (log.server_id) {
           // Registro já possui ID no servidor (ex: iniciado online e finalizado offline) -> UPDATE
           const updatePayload: WorkLogUpdate = {
-            client_name: log.client_name ? String(log.client_name).trim() : '',
+            client_name: log.client_name ? String(log.client_name).trim() : 'Cliente a definir',
             client_phone: log.client_phone ? String(log.client_phone).trim() : null,
             service_date: log.service_date,
             start_hours: Number(log.start_hours ?? (log as any).initial_hour ?? 0),

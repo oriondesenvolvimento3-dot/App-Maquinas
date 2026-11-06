@@ -280,7 +280,12 @@ export async function fetchAdminWorkLogs(
               operator_id: item.operator_id,
               operator_name:
                 profile?.full_name || localMatch?.operator_name || 'Operador',
-              client_name: item.client_name,
+              client_name:
+                item.client_name && item.client_name !== 'Em andamento' && item.client_name !== 'A definir'
+                  ? item.client_name
+                  : localMatch?.client_name && localMatch.client_name !== 'Em andamento' && localMatch.client_name !== 'A definir'
+                  ? localMatch.client_name
+                  : (item.client_name && item.client_name !== 'Em andamento' ? item.client_name : 'Cliente a definir'),
               client_phone: item.client_phone || localMatch?.client_phone || null,
               service_date: item.service_date,
               start_hours: startH,
@@ -354,7 +359,10 @@ export async function fetchAdminWorkLogs(
         machine_name: machine?.name || log.machine_name,
         operator_id: log.operator_id,
         operator_name: log.operator_name,
-        client_name: log.client_name,
+        client_name:
+          log.client_name && log.client_name !== 'Em andamento' && log.client_name !== 'A definir'
+            ? log.client_name
+            : 'Cliente a definir',
         client_phone: log.client_phone || null,
         service_date: log.service_date,
         start_hours: startH,

@@ -79,7 +79,12 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
       const found = all.find((s) => String(s.id) === String(serviceId));
       if (found) {
         setService(found);
-        setClientNameInput(found.client_name || '');
+        const rawClient = found.client_name || '';
+        const cleanClient =
+          rawClient !== 'Em andamento' && rawClient !== 'A definir'
+            ? rawClient
+            : '';
+        setClientNameInput(cleanClient);
         setClientPhoneInput(found.client_phone ? applyPhoneMask(found.client_phone) : '');
         setServiceDateInput((found.service_date || '').split('T')[0]);
         setMachineIdInput(found.machine_id || '');
@@ -323,7 +328,11 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
     const dateFormatted = formatDateBr(serviceDateInput || service.service_date);
     const rateFmt = formatCurrencyBRL(numericRate);
     const totalFmt = formatCurrencyBRL(calculatedTotal);
-    const currentClient = clientNameInput.trim() || service.client_name;
+    const resolvedFallback =
+      service.client_name && service.client_name !== 'Em andamento' && service.client_name !== 'A definir'
+        ? service.client_name
+        : 'Cliente';
+    const currentClient = clientNameInput.trim() || resolvedFallback;
     const currentMachine = machineNameInput || service.machine_name;
     const currentObs = observationsInput.trim();
 
@@ -384,10 +393,16 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
   const handleExportPdf = (showPricing: boolean = true) => {
     if (!service) return;
     setIsPdfMenuOpen(false);
+    const resolvedPdfClient =
+      clientNameInput.trim() ||
+      ((service.client_name && service.client_name !== 'Em andamento' && service.client_name !== 'A definir')
+        ? service.client_name
+        : 'Cliente a definir');
+
     generateSingleServiceReceiptPdf(
       {
         id: service.id,
-        client_name: clientNameInput.trim() || service.client_name,
+        client_name: resolvedPdfClient,
         client_phone: clientPhoneInput.trim() || service.client_phone || null,
         machine_name: machineNameInput || service.machine_name,
         operator_name: service.operator_name,
@@ -952,7 +967,13 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
 
             {/* Resumo do serviço a excluir */}
             <div className="bg-slate-50 rounded-xl p-3 text-xs text-slate-700 space-y-1 border border-slate-200">
-              <p><span className="font-semibold text-slate-900">Cliente:</span> {clientNameInput || service.client_name}</p>
+              <p>
+                <span className="font-semibold text-slate-900">Cliente:</span>{' '}
+                {clientNameInput.trim() ||
+                  ((service.client_name && service.client_name !== 'Em andamento' && service.client_name !== 'A definir')
+                    ? service.client_name
+                    : 'Cliente a definir')}
+              </p>
               <p><span className="font-semibold text-slate-900">Máquina:</span> {machineNameInput || service.machine_name}</p>
               <p><span className="font-semibold text-slate-900">Horas:</span> {calculatedHours}h • R$ {calculatedTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
             </div>

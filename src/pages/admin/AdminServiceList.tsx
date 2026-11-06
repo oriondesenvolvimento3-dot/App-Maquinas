@@ -235,7 +235,9 @@ export const AdminServiceList: React.FC<AdminServiceListProps> = ({
                 </div>
                 <div className="min-w-0">
                   <p className="text-base font-bold text-[#0F172A] truncate">
-                    {service.client_name}
+                    {service.client_name === 'Em andamento' || service.client_name === 'A definir'
+                      ? 'Cliente a definir'
+                      : service.client_name || 'Cliente a definir'}
                   </p>
                   <p className="text-xs text-[#64748B] font-medium truncate">
                     {service.machine_name} • {service.total_hours}h

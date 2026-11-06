@@ -15,6 +15,7 @@ import {
   AlertCircle,
   Loader2,
   CheckCircle2,
+  Users,
 } from 'lucide-react';
 
 interface NewServiceFormProps {
@@ -30,6 +31,7 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
   const [selectedMachineId, setSelectedMachineId] = useState<string>('');
   const [selectedMachineName, setSelectedMachineName] = useState<string>('');
   const [startHours, setStartHours] = useState<string>('');
+  const [clientName, setClientName] = useState<string>('');
   const [isLoadingMachines, setIsLoadingMachines] = useState<boolean>(true);
 
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -99,6 +101,7 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
       start_hours: numStart,
       billing_unit: isKm ? 'km' : 'hour',
       km_initial: isKm ? numStart : undefined,
+      client_name: clientName.trim() || undefined,
     };
 
     setIsSubmitting(true);
@@ -251,6 +254,31 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
               {isKm
                 ? 'O sistema preenche automaticamente com o último KM registrado. Ajuste se necessário.'
                 : 'O sistema preenche automaticamente com o último horímetro registrado. Ajuste se necessário.'}
+            </p>
+          </div>
+
+          {/* Campo 3: Cliente / Obra (opcional ao iniciar) */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label
+                htmlFor="start_client_name"
+                className="flex items-center gap-1.5 text-xs font-bold text-[#0F172A] uppercase tracking-wider"
+              >
+                <Users className="w-4 h-4 text-[#F59E0B]" />
+                <span>Cliente / Obra (Opcional)</span>
+              </label>
+            </div>
+
+            <input
+              id="start_client_name"
+              type="text"
+              placeholder="Ex: João da Silva, Fazenda Boa Esperança..."
+              value={clientName}
+              onChange={(e) => setClientName(e.target.value)}
+              className="w-full h-12 px-4 rounded-xl border border-[#CBD5E1] bg-white text-base font-semibold text-[#0F172A] placeholder:text-slate-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-[#FBBF24] focus:border-transparent transition-all shadow-sm"
+            />
+            <p className="text-[11px] text-slate-500">
+              Você pode informar o cliente agora ou preenchê-lo ao finalizar o serviço.
             </p>
           </div>
         </form>

@@ -34,7 +34,16 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
   const { isOnline } = useNetworkStatus();
 
   const [endHours, setEndHours] = useState<string>('');
-  const [clientName, setClientName] = useState<string>('');
+  const [clientName, setClientName] = useState<string>(() => {
+    if (
+      activeLog.client_name &&
+      activeLog.client_name !== 'Em andamento' &&
+      activeLog.client_name !== 'A definir'
+    ) {
+      return activeLog.client_name;
+    }
+    return '';
+  });
   const [serviceDate, setServiceDate] = useState<string>(
     new Date().toISOString().split('T')[0]
   );

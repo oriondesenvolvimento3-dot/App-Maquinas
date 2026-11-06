@@ -283,5 +283,46 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
       const activeApproved = await getActiveWorkLogForOperator('op-finished-01', false);
       expect(activeApproved).toBeNull();
     });
+
+    it('deve preservar o nome real do cliente digitado e nunca sobrescrever com "Em andamento"', async () => {
+      // 1. Inicia serviço informando cliente opcional
+      const startRes = await startWorkLog(
+        {
+          machine_id: 'mach-cat-01',
+          machine_name: 'Retroescavadeira CAT 416E',
+          operator_id: 'op-client-test',
+          operator_name: 'Marcos Operador',
+          start_hours: 1200,
+          client_name: 'Sítio Primavera',
+        },
+        false
+      );
+      expect(startRes.success).toBe(true);
+
+      const active = await getActiveWorkLogForOperator('op-client-test', false);
+      expect(active?.client_name).toBe('Sítio Primavera');
+      expect(active?.client_name).not.toBe('Em andamento');
+
+      // 2. Finaliza serviço confirmando o nome do cliente
+      const finishRes = await finishWorkLog(
+        {
+          localId: active!.id,
+          machine_id: active!.machine_id,
+          machine_name: active!.machine_name,
+          operator_id: active!.operator_id,
+          operator_name: active!.operator_name,
+          client_name: 'Sítio Primavera - Setor B',
+          service_date: '2026-11-06',
+          start_hours: 1200,
+          end_hours: 1204,
+        },
+        false
+      );
+      expect(finishRes.success).toBe(true);
+
+      const finished = await db.offline_work_logs.get(active!.id!);
+      expect(finished?.client_name).toBe('Sítio Primavera - Setor B');
+      expect(finished?.client_name).not.toBe('Em andamento');
+    });
   });
 });
