@@ -125,11 +125,13 @@ export function sanitizeWorkLogForSupabase(log: Partial<OfflineWorkLog> & Record
       (log as any).final_horimeter ??
       (log as any).horimeter_final ??
       (log as any).km_final ??
-      log.start_hours ??
       0
     ),
     observations: log.observations?.trim() || log.notes?.trim() || null,
-    status: log.status || 'pendente',
+    status:
+      log.status === 'em_andamento' || (log.status as any) === 'in_progress'
+        ? 'em_andamento'
+        : log.status || 'pendente',
     client_phone: log.client_phone ? String(log.client_phone).trim() : null,
   };
 
@@ -297,7 +299,10 @@ export async function syncPendingServices(): Promise<number> {
               0
             ),
             observations: log.observations?.trim() || (log as any).notes?.trim() || null,
-            status: log.status || 'pendente',
+            status:
+              log.status === 'em_andamento' || (log.status as any) === 'in_progress'
+                ? 'em_andamento'
+                : log.status || 'pendente',
             updated_at: new Date().toISOString(),
           };
 

@@ -187,7 +187,10 @@ export async function fetchAdminWorkLogs(
         .select('*')
         .order('service_date', { ascending: false });
 
-      if (filterStatus !== 'todos') {
+      if (filterStatus === 'todos') {
+        // No painel do administrador, NUNCA lista serviços em andamento (check-in sem check-out)
+        query = query.neq('status', 'em_andamento').neq('status', 'in_progress' as any);
+      } else {
         query = query.eq('status', filterStatus);
       }
 
@@ -325,6 +328,12 @@ export async function fetchAdminWorkLogs(
               created_at: item.created_at,
             };
           });
+
+          if (filterStatus === 'todos') {
+            resultLogs = resultLogs.filter(
+              (l) => l.status !== 'em_andamento' && (l.status as any) !== 'in_progress'
+            );
+          }
         }
       }
     } catch (err) {
@@ -338,9 +347,16 @@ export async function fetchAdminWorkLogs(
   // Leitura do banco local Dexie se offline/falha de rede, ou mesclagem de itens pendentes se online
   if (!fetchedFromSupabase || resultLogs.length === 0) {
     const allLocalLogs = await db.offline_work_logs.toArray();
-    const localLogs = fetchedFromSupabase
+    let localLogs = fetchedFromSupabase
       ? allLocalLogs.filter((l) => l.sync_status === 'pending' || l.synced === false)
       : allLocalLogs;
+
+    // Isolamento estrito do painel admin: nunca exibe serviços em andamento
+    if (filterStatus !== 'em_andamento') {
+      localLogs = localLogs.filter(
+        (l) => l.status !== 'em_andamento' && (l.status as any) !== 'in_progress'
+      );
+    }
     const cachedMachines = await db.cached_machines.toArray();
     const machineMap = new Map(cachedMachines.map((m) => [m.id, m]));
     const storedUnits = getStoredMachineBillingUnits();
@@ -415,6 +431,10 @@ export async function fetchAdminWorkLogs(
 
     if (filterStatus !== 'todos') {
       resultLogs = resultLogs.filter((l) => l.status === filterStatus);
+    } else {
+      resultLogs = resultLogs.filter(
+        (l) => l.status !== 'em_andamento' && (l.status as any) !== 'in_progress'
+      );
     }
   }
 

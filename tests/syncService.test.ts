@@ -12,6 +12,7 @@ import {
 } from '../src/services/syncService';
 import { supabase } from '../src/lib/supabase';
 import { db } from '../src/lib/dexieDb';
+import type { OfflineWorkLog } from '../src/types/database';
 
 describe('SyncService - Sincronização Dexie <-> Supabase', () => {
   beforeEach(async () => {
@@ -79,6 +80,23 @@ describe('SyncService - Sincronização Dexie <-> Supabase', () => {
     expect(cleanPayload.end_hours).toBe(105);
     expect(cleanPayload.observations).toBe('Serviço concluído');
     expect(cleanPayload.status).toBe('pendente');
+  });
+
+  it('deve preservar status em_andamento e não duplicar start_hours em end_hours', () => {
+    const inProgressLog: Partial<OfflineWorkLog> = {
+      machine_id: 'mach-01',
+      operator_id: 'op-01',
+      client_name: 'Obra Rodovia',
+      service_date: '2026-11-06',
+      start_hours: 1500,
+      end_hours: 0,
+      status: 'em_andamento',
+    };
+
+    const sanitized = sanitizeWorkLogForSupabase(inProgressLog);
+    expect(sanitized.status).toBe('em_andamento');
+    expect(sanitized.start_hours).toBe(1500);
+    expect(sanitized.end_hours).toBe(0);
   });
 
   it('deve sincronizar com sucesso registro offline, removendo started_at e marcando synced: true no Dexie', async () => {

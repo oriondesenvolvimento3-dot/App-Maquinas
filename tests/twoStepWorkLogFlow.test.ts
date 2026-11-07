@@ -6,6 +6,7 @@ import {
   getActiveWorkLogForOperator,
   validateFinishServiceInput,
 } from '../src/services/workLogService';
+import { fetchAdminWorkLogs } from '../src/services/adminService';
 import { db } from '../src/lib/dexieDb';
 
 describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
@@ -49,8 +50,16 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
       expect(active?.status).toBe('em_andamento');
       expect(active?.machine_id).toBe('mach-cat-01');
       expect(active?.start_hours).toBe(1500.5);
+      expect(active?.end_hours).toBe(0);
       expect(active?.started_at).toBeDefined();
       expect(active?.start_time).toMatch(/^\d{2}:\d{2}$/);
+
+      // O Admin NUNCA deve ver serviços com status em_andamento no painel de aprovação ou histórico
+      const adminTodos = await fetchAdminWorkLogs('todos');
+      expect(adminTodos.some((l) => l.operator_id === 'op-joao-123')).toBe(false);
+
+      const adminPendentes = await fetchAdminWorkLogs('pendente');
+      expect(adminPendentes.some((l) => l.operator_id === 'op-joao-123')).toBe(false);
     });
 
     it('deve impedir que o mesmo operador inicie mais de 1 serviço em andamento simultaneamente', async () => {
@@ -202,6 +211,14 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
       expect(finishedLog?.client_phone).toBe('(11) 98765-4321');
       expect(finishedLog?.finished_at).toBeDefined();
       expect(finishedLog?.end_time).toMatch(/^\d{2}:\d{2}$/);
+
+      // Somente após a finalização o serviço deve aparecer na fila de aprovação do Administrador
+      const adminPendentes = await fetchAdminWorkLogs('pendente');
+      const foundInAdmin = adminPendentes.find((l) => l.operator_id === 'op-carlos-789');
+      expect(foundInAdmin).toBeDefined();
+      expect(foundInAdmin?.start_hours).toBe(1500);
+      expect(foundInAdmin?.end_hours).toBe(1506.5);
+      expect(foundInAdmin?.total_hours).toBe(6.5);
 
       // 5. Verifica que o horímetro da máquina foi atualizado
       const machine = await db.cached_machines.get('mach-cat-01');
