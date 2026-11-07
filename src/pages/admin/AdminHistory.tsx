@@ -11,7 +11,7 @@ import {
   type ReportItem,
 } from '../../utils/pdfGenerator';
 import { openWhatsAppShare } from '../../utils/whatsappShare';
-import { formatDateBr, formatCurrencyBRL, formatTimeHHMM, formatDateISO } from '../../utils/formatters';
+import { formatDateBr, formatCurrencyBRL, formatDateISO } from '../../utils/formatters';
 import { AdminBottomNav } from '../../components/AdminBottomNav';
 import {
   Truck,
@@ -22,6 +22,7 @@ import {
   DollarSign,
   CheckCircle2,
   Users,
+  X,
 } from 'lucide-react';
 
 interface AdminHistoryProps {
@@ -330,14 +331,10 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
   };
 
   return (
-    <div className="relative flex flex-col justify-between w-full max-w-md mx-auto min-h-screen overflow-y-auto bg-[#F8FAFC] shadow-2xl pb-36">
+    <div className="relative flex flex-col justify-between w-full max-w-md mx-auto min-h-screen overflow-y-auto bg-[#F8FAFC] shadow-2xl pb-[calc(env(safe-area-inset-bottom,0px)+10rem)]">
       
       {/* 1. CABEÇALHO */}
       <header className="px-6 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] pb-3 bg-white border-b border-[#E2E8F0] sticky top-0 z-20">
-        <div className="flex items-center justify-between text-xs text-[#64748B] mb-1 font-medium">
-          <span>{formatTimeHHMM()}</span>
-        </div>
-
         <h1 className="text-2xl font-extrabold text-[#0F172A] tracking-tight">
           Financeiro
         </h1>
@@ -405,8 +402,8 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
           </div>
 
           {/* Datas Início e Fim */}
-          <div className="grid grid-cols-2 gap-2.5">
-            <div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="min-w-0">
               <label htmlFor="input-start-date" className="text-[10px] font-bold text-[#64748B] block mb-1 uppercase tracking-wider">
                 De:
               </label>
@@ -415,10 +412,10 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="w-full h-9 px-2.5 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-xs font-semibold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
+                className="w-full h-9.5 px-2.5 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-xs font-semibold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
               />
             </div>
-            <div>
+            <div className="min-w-0">
               <label htmlFor="input-end-date" className="text-[10px] font-bold text-[#64748B] block mb-1 uppercase tracking-wider">
                 Até:
               </label>
@@ -427,7 +424,7 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="w-full h-9 px-2.5 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-xs font-semibold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
+                className="w-full h-9.5 px-2.5 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-xs font-semibold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
               />
             </div>
           </div>
@@ -622,86 +619,119 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
       </main>
 
       {/* 4. BARRA DE AÇÕES RÁPIDAS (GERAR PDF E WHATSAPP) */}
-      <div className="fixed bottom-14 left-0 right-0 max-w-md mx-auto px-6 py-2 bg-white/95 backdrop-blur-xs border-t border-[#E2E8F0] z-20 flex flex-col gap-2">
-        {isPdfMenuOpen && (
-          <div
-            role="menu"
-            aria-label="Opções de exportação do relatório PDF"
-            className="p-2 bg-white border border-[#CBD5E1] rounded-xl shadow-lg space-y-1.5 animate-fade-in"
-          >
-            <p className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#64748B]">
-              Formato do Relatório PDF:
-            </p>
-            <button
-              id="btn-report-pdf-with-pricing"
-              type="button"
-              role="menuitem"
-              onClick={() => handleGeneratePdf(true)}
-              className="w-full p-2.5 rounded-lg hover:bg-amber-50/70 active:bg-amber-100/60 border border-transparent hover:border-amber-200 flex items-center gap-3 text-left transition-all cursor-pointer"
-            >
-              <div className="w-8 h-8 rounded-lg bg-[#FEF3C7] text-[#B45309] flex items-center justify-center shrink-0">
-                <DollarSign className="w-4 h-4" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-extrabold text-[#0F172A]">
-                  Com Valores (Completo)
-                </p>
-                <p className="text-[11px] text-[#64748B] truncate">
-                  Inclui tarifas e total ({formatCurrencyBRL(totalFilteredAmount)})
-                </p>
-              </div>
-            </button>
+      <div className="fixed bottom-[calc(max(0.75rem,env(safe-area-inset-bottom,0px))+3.25rem)] left-0 right-0 max-w-md mx-auto px-6 py-2.5 bg-white/95 backdrop-blur-xs border-t border-[#E2E8F0] z-30 flex items-center gap-2.5">
+        {/* Botão Gerar PDF */}
+        <button
+          id="btn-generate-pdf"
+          type="button"
+          aria-expanded={isPdfMenuOpen}
+          aria-haspopup="dialog"
+          onClick={() => setIsPdfMenuOpen((prev) => !prev)}
+          disabled={filteredServices.length === 0}
+          className="flex-1 h-10 bg-[#0F172A] hover:bg-[#1E293B] active:scale-[0.98] text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <FileDown className="w-3.5 h-3.5 text-[#FBBF24]" />
+          <span>Gerar PDF</span>
+        </button>
 
-            <button
-              id="btn-report-pdf-without-pricing"
-              type="button"
-              role="menuitem"
-              onClick={() => handleGeneratePdf(false)}
-              className="w-full p-2.5 rounded-lg hover:bg-slate-100 active:bg-slate-200/70 border border-transparent hover:border-slate-200 flex items-center gap-3 text-left transition-all cursor-pointer"
-            >
-              <div className="w-8 h-8 rounded-lg bg-slate-100 text-[#0F172A] flex items-center justify-center shrink-0">
-                <Clock className="w-4 h-4" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-extrabold text-[#0F172A]">
-                  Sem Valores (Apenas Horas)
-                </p>
-                <p className="text-[11px] text-[#64748B] truncate">
-                  Exibe apenas horímetros e total de horas ({totalFilteredHours}h)
-                </p>
-              </div>
-            </button>
-          </div>
-        )}
-
-        <div className="flex items-center gap-2.5">
-          {/* Botão Gerar PDF */}
-          <button
-            id="btn-generate-pdf"
-            type="button"
-            aria-expanded={isPdfMenuOpen}
-            aria-haspopup="menu"
-            onClick={() => setIsPdfMenuOpen((prev) => !prev)}
-            disabled={filteredServices.length === 0}
-            className="flex-1 h-10 bg-[#0F172A] hover:bg-[#1E293B] active:scale-[0.98] text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <FileDown className="w-3.5 h-3.5 text-[#FBBF24]" />
-            <span>Gerar PDF</span>
-          </button>
-
-          {/* Botão Enviar WhatsApp */}
-          <button
-            id="btn-share-whatsapp"
-            type="button"
-            onClick={handleShareWhatsApp}
-            disabled={filteredServices.length === 0}
-            className="flex-1 h-10 bg-[#16A34A] hover:bg-[#15803D] active:scale-[0.98] text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <MessageCircle className="w-3.5 h-3.5 fill-white" />
-            <span>WhatsApp</span>
-          </button>
-        </div>
+        {/* Botão Enviar WhatsApp */}
+        <button
+          id="btn-share-whatsapp"
+          type="button"
+          onClick={handleShareWhatsApp}
+          disabled={filteredServices.length === 0}
+          className="flex-1 h-10 bg-[#16A34A] hover:bg-[#15803D] active:scale-[0.98] text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <MessageCircle className="w-3.5 h-3.5 fill-white" />
+          <span>WhatsApp</span>
+        </button>
       </div>
+
+      {/* 5. MODAL BOTTOM SHEET: SELEÇÃO DE FORMATO DO RELATÓRIO PDF */}
+      {isPdfMenuOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Opções de exportação do relatório PDF"
+          className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in backdrop-blur-xs"
+          onClick={() => setIsPdfMenuOpen(false)}
+        >
+          <div
+            role="document"
+            className="w-full max-w-md bg-white rounded-t-3xl sm:rounded-2xl p-5 shadow-2xl space-y-4 border border-[#E2E8F0] pb-[calc(env(safe-area-inset-bottom,0px)+1.5rem)] sm:pb-5 animate-slide-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Cabeçalho do Bottom Sheet */}
+            <div className="flex items-center justify-between pb-2 border-b border-[#F1F5F9]">
+              <div>
+                <h3 className="text-sm font-extrabold text-[#0F172A]">
+                  Formato do Relatório PDF
+                </h3>
+                <p className="text-[11px] text-[#64748B]">
+                  Selecione como os valores devem ser apresentados
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPdfMenuOpen(false)}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-[#64748B] hover:bg-[#F1F5F9] cursor-pointer"
+                aria-label="Fechar"
+              >
+                <X className="w-4 h-4 stroke-[2.5]" />
+              </button>
+            </div>
+
+            {/* Opções de Exportação */}
+            <div className="space-y-2.5">
+              <button
+                id="btn-report-pdf-with-pricing"
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setIsPdfMenuOpen(false);
+                  handleGeneratePdf(true);
+                }}
+                className="w-full p-3 rounded-xl hover:bg-amber-50/70 active:bg-amber-100/60 border border-slate-200 hover:border-amber-300 flex items-center gap-3 text-left transition-all cursor-pointer shadow-2xs"
+              >
+                <div className="w-10 h-10 rounded-xl bg-[#FEF3C7] text-[#B45309] flex items-center justify-center shrink-0">
+                  <DollarSign className="w-5 h-5 stroke-[2.5]" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-extrabold text-[#0F172A]">
+                    Com Valores (Completo)
+                  </p>
+                  <p className="text-[11px] text-[#64748B] truncate">
+                    Inclui tarifas e total ({formatCurrencyBRL(totalFilteredAmount)})
+                  </p>
+                </div>
+              </button>
+
+              <button
+                id="btn-report-pdf-without-pricing"
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setIsPdfMenuOpen(false);
+                  handleGeneratePdf(false);
+                }}
+                className="w-full p-3 rounded-xl hover:bg-slate-100 active:bg-slate-200/70 border border-slate-200 hover:border-slate-300 flex items-center gap-3 text-left transition-all cursor-pointer shadow-2xs"
+              >
+                <div className="w-10 h-10 rounded-xl bg-slate-100 text-[#0F172A] flex items-center justify-center shrink-0">
+                  <Clock className="w-5 h-5 stroke-[2.5]" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-extrabold text-[#0F172A]">
+                    Sem Valores (Apenas Horas)
+                  </p>
+                  <p className="text-[11px] text-[#64748B] truncate">
+                    Exibe apenas horímetros e total de horas ({totalFilteredHours}h)
+                  </p>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 5. BARRA INFERIOR (BOTTOM NAVIGATION) */}
       <AdminBottomNav
