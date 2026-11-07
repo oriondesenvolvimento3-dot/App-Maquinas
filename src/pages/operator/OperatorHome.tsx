@@ -88,16 +88,24 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
         total_hours: number;
         status?: string;
       }> = [];
+      let fetchedFromSupabase = false;
 
       if (isOnline && isSupabaseConfigured()) {
         try {
-          const { data, error } = await supabase
+          let query = supabase
             .from('work_logs')
-            .select('service_date, total_hours, status');
+            .select('service_date, total_hours, status, operator_id');
+
+          if (operatorId) {
+            query = query.eq('operator_id', operatorId);
+          }
+
+          const { data, error } = await query;
 
           if (error) {
             console.error('[Supabase OperatorHome work_logs Error]:', error);
-          } else if (data) {
+          } else if (data !== null) {
+            fetchedFromSupabase = true;
             logsForMetrics = data.map((item: any) => ({
               service_date: item.service_date,
               total_hours: Number(item.total_hours || 0),
@@ -109,16 +117,24 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
         }
       }
 
-      // Se offline ou não obteve registros remotos, recorre aos logs locais do Dexie
-      if (logsForMetrics.length === 0) {
-        logsForMetrics = localLogs.map((l) => ({
+      // Se offline ou não obteve registros remotos por falha de conexão/API, recorre aos logs locais do Dexie
+      if (!fetchedFromSupabase) {
+        const filteredLocal = operatorId
+          ? localLogs.filter((l) => l.operator_id === operatorId)
+          : localLogs;
+        logsForMetrics = filteredLocal.map((l) => ({
           service_date: l.service_date,
           total_hours: Number(l.total_hours || 0),
           status: l.status,
         }));
       } else {
-        // Inclui registros locais pendentes de envio
-        const pendingLocal = localLogs.filter((l) => l.sync_status === 'pending' || l.synced === false);
+        // Se a chamada ao Supabase teve sucesso (mesmo retornando 0 registros), NÃO recorre ao fallback completo.
+        // Apenas inclui registros locais pendentes de sincronização
+        const pendingLocal = localLogs.filter(
+          (l) =>
+            (l.sync_status === 'pending' || l.synced === false) &&
+            (!operatorId || l.operator_id === operatorId)
+        );
         for (const pend of pendingLocal) {
           logsForMetrics.push({
             service_date: pend.service_date,
@@ -140,7 +156,7 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
     } catch (err) {
       console.warn('[OperatorHome] Erro ao carregar métricas:', err);
     }
-  }, [isOnline]);
+  }, [isOnline, operatorId]);
 
   useEffect(() => {
     checkActiveService();
