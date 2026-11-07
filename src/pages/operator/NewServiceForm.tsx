@@ -4,6 +4,7 @@ import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import {
   getActiveMachines,
   startWorkLog,
+  getLatestHorimeterForMachine,
   type StartServiceFormData,
 } from '../../services/workLogService';
 import type { Machine } from '../../types/database';
@@ -41,12 +42,17 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
   useEffect(() => {
     setIsLoadingMachines(true);
     getActiveMachines(isOnline)
-      .then((loaded) => {
+      .then(async (loaded) => {
         setMachines(loaded);
         if (loaded.length > 0) {
-          setSelectedMachineId(loaded[0].id);
-          setSelectedMachineName(loaded[0].name);
-          setStartHours(loaded[0].current_hours !== undefined ? String(loaded[0].current_hours) : '0');
+          const first = loaded[0];
+          setSelectedMachineId(first.id);
+          setSelectedMachineName(first.name);
+          setStartHours(first.current_hours !== undefined ? String(first.current_hours) : '0');
+          try {
+            const latest = await getLatestHorimeterForMachine(first.id, first.current_hours);
+            setStartHours(String(latest));
+          } catch {}
         }
       })
       .catch((err) => {
@@ -57,13 +63,17 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
       });
   }, [isOnline]);
 
-  // Atualiza o horômetro inicial ao trocar a máquina
-  const handleMachineChange = (machineId: string) => {
+  // Atualiza o horômetro inicial ao trocar a máquina com o maior valor recente
+  const handleMachineChange = async (machineId: string) => {
     setSelectedMachineId(machineId);
     const chosen = machines.find((m) => m.id === machineId);
     if (chosen) {
       setSelectedMachineName(chosen.name);
       setStartHours(chosen.current_hours !== undefined ? String(chosen.current_hours) : '0');
+      try {
+        const latest = await getLatestHorimeterForMachine(machineId, chosen.current_hours);
+        setStartHours(String(latest));
+      } catch {}
     }
   };
 

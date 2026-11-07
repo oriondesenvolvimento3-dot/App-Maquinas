@@ -98,13 +98,35 @@ export async function getActiveMachines(isOnline?: boolean): Promise<Machine[]> 
         .order('name');
 
       if (!error && data) {
-        const enriched = (data as Machine[]).map((m) => ({
-          ...m,
-          billing_unit:
-            m.billing_unit === 'km' || storedUnits[m.id] === 'km'
-              ? ('km' as const)
-              : ('hour' as const),
-        }));
+        // Preserva o horímetro mais recente entre o cache local e o banco remoto
+        const currentCached = await db.cached_machines.toArray();
+        const cachedMap = new Map(currentCached.map((m) => [m.id, m]));
+
+        const enriched = (data as Machine[]).map((m) => {
+          const cached = cachedMap.get(m.id);
+          const cachedHours = Number(
+            cached?.current_hours ??
+            (cached as any)?.current_horimeter ??
+            (cached as any)?.horimeter ??
+            0
+          );
+          const remoteHours = Number(
+            m.current_hours ??
+            (m as any)?.current_horimeter ??
+            (m as any)?.horimeter ??
+            0
+          );
+          const finalHours = Math.max(remoteHours, cachedHours);
+
+          return {
+            ...m,
+            current_hours: finalHours,
+            billing_unit:
+              m.billing_unit === 'km' || storedUnits[m.id] === 'km'
+                ? ('km' as const)
+                : ('hour' as const),
+          };
+        });
         await setCachedMachines(enriched);
         return enriched;
       }
@@ -121,6 +143,83 @@ export async function getActiveMachines(isOnline?: boolean): Promise<Machine[]> 
         ? ('km' as const)
         : ('hour' as const),
   }));
+}
+
+/**
+ * Recupera o horímetro mais atualizado para uma máquina:
+ * Prioriza o maior valor entre:
+ * 1. O horímetro da máquina (current_hours / current_horimeter)
+ * 2. O end_hours do último apontamento finalizado no Dexie local
+ * 3. O end_hours do último apontamento finalizado no Supabase (se online)
+ */
+export async function getLatestHorimeterForMachine(
+  machineId: string,
+  baseMachineHours?: number
+): Promise<number> {
+  if (!machineId) return 0;
+
+  let maxHours = Number(baseMachineHours || 0);
+
+  // 1. Consulta máquina em cache local (Dexie)
+  try {
+    const cached = await db.cached_machines.get(machineId);
+    if (cached) {
+      const ch = Number(
+        cached.current_hours ??
+        (cached as any).current_horimeter ??
+        (cached as any).horimeter ??
+        0
+      );
+      if (ch > maxHours) maxHours = ch;
+    }
+  } catch {}
+
+  // 2. Consulta o último serviço finalizado no Dexie local para esta máquina
+  try {
+    const localLogs = await db.offline_work_logs
+      .where('machine_id')
+      .equals(machineId)
+      .toArray();
+
+    for (const log of localLogs) {
+      if (log.status !== 'em_andamento' && (log.status as any) !== 'in_progress') {
+        const end = Number(
+          log.end_hours ??
+          log.km_final ??
+          (log as any).final_horimeter ??
+          0
+        );
+        if (end > maxHours) {
+          maxHours = end;
+        }
+      }
+    }
+  } catch {}
+
+  // 3. Se online, consulta o último serviço finalizado no Supabase para esta máquina
+  const online = typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
+  if (online) {
+    try {
+      const { data } = await supabase
+        .from('work_logs')
+        .select('end_hours')
+        .eq('machine_id', machineId)
+        .not('status', 'in', '("em_andamento","in_progress")')
+        .order('service_date', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (data && data.end_hours !== null && data.end_hours !== undefined) {
+        const remoteEnd = Number(data.end_hours);
+        if (remoteEnd > maxHours) {
+          maxHours = remoteEnd;
+        }
+      }
+    } catch {}
+  }
+
+  return maxHours;
 }
 
 /**
@@ -523,7 +622,9 @@ export async function finishWorkLog(
 
     await db.cached_machines.update(formData.machine_id, {
       current_hours: formData.end_hours,
-    });
+      current_horimeter: formData.end_hours,
+      horimeter: formData.end_hours,
+    } as any);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Falha ao salvar no banco local';
     return { success: false, error: message };
@@ -534,6 +635,18 @@ export async function finishWorkLog(
 
   if (online && isSupabaseConfigured()) {
     try {
+      // Atualiza imediatamente o horímetro da máquina na tabela 'machines' do Supabase
+      try {
+        await supabase
+          .from('machines')
+          .update({
+            current_hours: formData.end_hours,
+            updated_at: now,
+          })
+          .eq('id', formData.machine_id);
+      } catch (machErr) {
+        console.warn('[WorkLogService] Falha ao atualizar horímetro da máquina no Supabase:', machErr);
+      }
       // Se não temos serverId explícito, busca se já existia registro em andamento no Supabase
       if (!resolvedServerId) {
         try {
@@ -675,7 +788,9 @@ export async function submitWorkLog(
 
     await db.cached_machines.update(formData.machine_id, {
       current_hours: formData.end_hours,
-    });
+      current_horimeter: formData.end_hours,
+      horimeter: formData.end_hours,
+    } as any);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Falha ao salvar no banco local';
     return { success: false, isOfflineSaved: false, error: message };
@@ -684,6 +799,15 @@ export async function submitWorkLog(
   // 2. Se houver conexão com a internet, tenta enviar imediatamente para work_logs do Supabase
   if (online && isSupabaseConfigured()) {
     try {
+      try {
+        await supabase
+          .from('machines')
+          .update({
+            current_hours: formData.end_hours,
+            updated_at: now,
+          })
+          .eq('id', formData.machine_id);
+      } catch {}
       const payload = {
         machine_id: formData.machine_id,
         operator_id: formData.operator_id,

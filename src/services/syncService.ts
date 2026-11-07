@@ -317,6 +317,24 @@ export async function syncPendingServices(): Promise<number> {
           }
 
           await markWorkLogAsSynced(log.id, log.server_id);
+
+          if (
+            updatePayload.status !== 'em_andamento' &&
+            updatePayload.end_hours !== undefined &&
+            updatePayload.end_hours > 0 &&
+            log.machine_id
+          ) {
+            try {
+              await supabase
+                .from('machines')
+                .update({
+                  current_hours: updatePayload.end_hours,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq('id', log.machine_id);
+            } catch {}
+          }
+
           successCount++;
         } else {
           // Novo registro criado offline -> INSERT limpo sem started_at
@@ -336,6 +354,19 @@ export async function syncPendingServices(): Promise<number> {
           if (data?.id) {
             // Marca o registro como sincronizado no Dexie com o UUID do servidor e synced: true
             await markWorkLogAsSynced(log.id, data.id);
+
+            if (insertPayload.status !== 'em_andamento' && insertPayload.end_hours > 0 && log.machine_id) {
+              try {
+                await supabase
+                  .from('machines')
+                  .update({
+                    current_hours: insertPayload.end_hours,
+                    updated_at: new Date().toISOString(),
+                  })
+                  .eq('id', log.machine_id);
+              } catch {}
+            }
+
             successCount++;
           }
         }

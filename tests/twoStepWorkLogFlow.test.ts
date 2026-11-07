@@ -5,6 +5,7 @@ import {
   cancelWorkLog,
   getActiveWorkLogForOperator,
   validateFinishServiceInput,
+  getLatestHorimeterForMachine,
 } from '../src/services/workLogService';
 import { fetchAdminWorkLogs } from '../src/services/adminService';
 import { db } from '../src/lib/dexieDb';
@@ -220,9 +221,12 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
       expect(foundInAdmin?.end_hours).toBe(1506.5);
       expect(foundInAdmin?.total_hours).toBe(6.5);
 
-      // 5. Verifica que o horímetro da máquina foi atualizado
+      // 5. Verifica que o horímetro da máquina foi atualizado no Dexie e no getLatestHorimeterForMachine
       const machine = await db.cached_machines.get('mach-cat-01');
       expect(machine?.current_hours).toBe(1506.5);
+
+      const latestHorimeter = await getLatestHorimeterForMachine('mach-cat-01');
+      expect(latestHorimeter).toBe(1506.5);
 
       // 6. Confirma que o operador agora pode iniciar um novo serviço
       const nextService = await startWorkLog(
