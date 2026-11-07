@@ -40,11 +40,11 @@
 /* Utilitários para áreas de segurança em dispositivos móveis (Notch / Dynamic Island / Home bar) */
 .safe-top,
 .pt-safe {
-  padding-top: max(12px, env(safe-area-inset-top, 0px));
+  padding-top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
 }
 .safe-bottom,
 .pb-safe {
-  padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.75rem);
 }
 .min-h-screen-safe {
   min-height: calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));

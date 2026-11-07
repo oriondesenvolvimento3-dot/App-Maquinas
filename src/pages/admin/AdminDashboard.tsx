@@ -129,7 +129,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     <div className="relative flex flex-col justify-between w-full max-w-md mx-auto min-h-screen overflow-y-auto bg-[#F8FAFC] shadow-2xl pb-24">
       
       {/* 1. TOPO: STATUS BAR & CABEÇALHO */}
-      <header className="px-6 pt-[max(1rem,env(safe-area-inset-top))] pb-3 bg-white border-b border-[#E2E8F0] sticky top-0 z-20">
+      <header className="px-6 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] pb-3 bg-white border-b border-[#E2E8F0] sticky top-0 z-20">
         <div className="flex items-center justify-between text-xs text-[#0F172A] mb-2 font-medium">
           <span>{formatTimeHHMM()}</span>
           <div className="flex items-center gap-1.5 font-semibold text-[11px] text-[#64748B]">

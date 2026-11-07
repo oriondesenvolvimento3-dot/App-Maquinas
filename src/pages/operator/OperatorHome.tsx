@@ -211,7 +211,7 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
     <div className="relative flex flex-col justify-between w-full max-w-md mx-auto min-h-screen bg-[#F8FAFC] shadow-2xl overflow-x-hidden">
       
       {/* 1. CABEÇALHO SUPERIOR */}
-      <header className="w-full flex items-center justify-between px-6 pt-[max(1.25rem,env(safe-area-inset-top))] pb-3 bg-[#F8FAFC]">
+      <header className="relative z-10 w-full flex items-center justify-between px-6 pt-[calc(env(safe-area-inset-top,0px)+1rem)] pb-3 bg-[#F8FAFC]">
         {/* Logo / Marca */}
         <div className="flex items-center gap-2">
           <span className="text-base font-extrabold tracking-wider text-[#0F172A] uppercase">

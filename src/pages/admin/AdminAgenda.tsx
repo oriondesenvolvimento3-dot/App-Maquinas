@@ -730,7 +730,7 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
       )}
 
       {/* 1. TOPO / CABEÇALHO DE NAVEGAÇÃO TEMPORAL (MOBILE-FIRST) */}
-      <header className="px-3.5 sm:px-5 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 bg-white border-b border-[#E2E8F0] sticky top-0 z-20 space-y-2.5">
+      <header className="px-3.5 sm:px-5 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] pb-3 bg-white border-b border-[#E2E8F0] sticky top-0 z-20 space-y-2.5">
         {/* Segmented Control 100% da largura no mobile ("Dia / Semana" vs "Lista Geral") */}
         <div className="grid grid-cols-2 w-full bg-[#F1F5F9] p-1 rounded-xl border border-[#E2E8F0]">
           <button

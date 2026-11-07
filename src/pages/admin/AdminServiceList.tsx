@@ -123,7 +123,7 @@ export const AdminServiceList: React.FC<AdminServiceListProps> = ({
     <div className="relative flex flex-col justify-between w-full max-w-md mx-auto min-h-screen overflow-y-auto bg-[#F8FAFC] shadow-2xl pb-24">
       
       {/* 1. CABEÇALHO SUPERIOR */}
-      <header className="px-6 pt-[max(1rem,env(safe-area-inset-top))] pb-3 bg-white border-b border-[#E2E8F0] sticky top-0 z-20">
+      <header className="px-6 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] pb-3 bg-white border-b border-[#E2E8F0] sticky top-0 z-20">
         <div className="flex items-center justify-between text-xs text-[#0F172A] mb-1 font-medium">
           <span>{formatTimeHHMM()}</span>
           <button

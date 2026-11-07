@@ -259,7 +259,7 @@ export const MachineManagement: React.FC<MachineManagementProps> = ({
       )}
 
       {/* 1. TOPO: CABEÇALHO E SEGMENTED CONTROL ("Máquinas" vs "Meus Clientes") */}
-      <header className="px-4 sm:px-5 pt-[max(1rem,env(safe-area-inset-top))] pb-3 bg-white border-b border-[#E2E8F0] sticky top-0 z-20 space-y-3">
+      <header className="px-4 sm:px-5 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] pb-3 bg-white border-b border-[#E2E8F0] sticky top-0 z-20 space-y-3">
         <div className="flex items-center justify-between gap-2 min-w-0">
           <div className="flex items-center gap-2 min-w-0">
             <button

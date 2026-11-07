@@ -489,7 +489,7 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
     <div className="relative flex flex-col justify-between w-full max-w-md mx-auto min-h-screen bg-[#F8FAFC] shadow-2xl">
       
       {/* 1. TOPO: BOTÃO VOLTAR E TÍTULO */}
-      <header className="px-6 pt-[max(1.25rem,env(safe-area-inset-top))] pb-4 bg-white border-b border-[#E2E8F0] sticky top-0 z-20 flex items-center justify-between">
+      <header className="px-6 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] pb-4 bg-white border-b border-[#E2E8F0] sticky top-0 z-20 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <button
             type="button"
