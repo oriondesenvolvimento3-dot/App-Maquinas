@@ -12,6 +12,7 @@ import type {
 } from '../types/database';
 
 const MACHINE_BILLING_UNITS_KEY = 'retroscave_machine_billing_units_v1';
+const WORKLOG_RATES_KEY = 'retroscave_worklog_rates_v1';
 
 export function getStoredMachineBillingUnits(): Record<string, BillingUnit> {
   if (typeof window === 'undefined' || !window.localStorage) return {};
@@ -30,6 +31,38 @@ export function setStoredMachineBillingUnit(machineId: string, unit: BillingUnit
     const map = getStoredMachineBillingUnits();
     map[machineId] = unit;
     window.localStorage.setItem(MACHINE_BILLING_UNITS_KEY, JSON.stringify(map));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+export function getStoredWorkLogRates(): Record<
+  string,
+  { hourly_rate: number; total_amount: number }
+> {
+  if (typeof window === 'undefined' || !window.localStorage) return {};
+  try {
+    const raw = window.localStorage.getItem(WORKLOG_RATES_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) || {};
+  } catch {
+    return {};
+  }
+}
+
+export function setStoredWorkLogRate(
+  workLogId: string | number,
+  hourlyRate: number,
+  totalAmount: number
+): void {
+  if (!workLogId || typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    const map = getStoredWorkLogRates();
+    map[String(workLogId)] = {
+      hourly_rate: Number(hourlyRate) || 0,
+      total_amount: Number(totalAmount) || 0,
+    };
+    window.localStorage.setItem(WORKLOG_RATES_KEY, JSON.stringify(map));
   } catch {
     // Ignore storage errors
   }
@@ -82,6 +115,7 @@ export interface AdminWorkLogUpdatePayload {
   start_hours: number;
   end_hours: number;
   hourly_rate: number;
+  total_amount?: number;
   billing_unit?: BillingUnit;
   km_initial?: number;
   km_final?: number;
@@ -245,6 +279,7 @@ export async function fetchAdminWorkLogs(
           }
           const machineMap = new Map(cachedMachines.map((m) => [m.id, m]));
           const storedUnits = getStoredMachineBillingUnits();
+          const storedRates = getStoredWorkLogRates();
 
           let cachedProfiles = await db.cached_profiles.toArray();
           const profileIds = new Set(data.map((item: any) => item.operator_id).filter(Boolean));
@@ -270,9 +305,32 @@ export async function fetchAdminWorkLogs(
               Array.from(machineMap.values()).find((m) => m.name === item.machine_name);
             const profile = profileMap.get(item.operator_id);
             const localMatch = localByServerId.get(item.id);
+            const storedRate = storedRates[String(item.id)];
+
+            const remoteRate =
+              item.hourly_rate !== undefined && item.hourly_rate !== null && Number(item.hourly_rate) > 0
+                ? Number(item.hourly_rate)
+                : item.price_per_hour !== undefined && item.price_per_hour !== null && Number(item.price_per_hour) > 0
+                ? Number(item.price_per_hour)
+                : item.unit_price !== undefined && item.unit_price !== null && Number(item.unit_price) > 0
+                ? Number(item.unit_price)
+                : undefined;
+
+            const localRate =
+              storedRate?.hourly_rate !== undefined && storedRate.hourly_rate > 0
+                ? storedRate.hourly_rate
+                : localMatch?.hourly_rate !== undefined && Number(localMatch.hourly_rate) > 0
+                ? Number(localMatch.hourly_rate)
+                : undefined;
 
             const rate = Number(
-              item.hourly_rate ?? localMatch?.hourly_rate ?? machine?.hourly_rate ?? 0
+              (storedRate?.hourly_rate !== undefined && storedRate.hourly_rate > 0
+                ? storedRate.hourly_rate
+                : undefined) ??
+                remoteRate ??
+                localRate ??
+                machine?.hourly_rate ??
+                0
             );
             const rawHours = Number(item.total_hours ?? 0);
             const startH = Number(
@@ -296,11 +354,15 @@ export async function fetchAdminWorkLogs(
             const totalHours =
               rawHours > 0 ? rawHours : calculateTotalHours(startH, endH);
             const totalAmount =
-              item.total_amount !== undefined && Number(item.total_amount) > 0
+              rate > 0 && totalHours > 0
+                ? Number((totalHours * rate).toFixed(2))
+                : item.total_amount !== undefined && Number(item.total_amount) > 0
                 ? Number(item.total_amount)
+                : storedRate?.total_amount !== undefined && storedRate.total_amount > 0
+                ? Number(storedRate.total_amount)
                 : localMatch?.total_amount !== undefined && localMatch.total_amount > 0
-                ? localMatch.total_amount
-                : totalHours * rate;
+                ? Number(localMatch.total_amount)
+                : Number((totalHours * rate).toFixed(2));
 
             const startedAt = localMatch?.started_at || item.started_at || item.created_at;
             const finishedAt =
@@ -391,11 +453,23 @@ export async function fetchAdminWorkLogs(
     const cachedMachines = await db.cached_machines.toArray();
     const machineMap = new Map(cachedMachines.map((m) => [m.id, m]));
     const storedUnits = getStoredMachineBillingUnits();
+    const storedRates = getStoredWorkLogRates();
 
     resultLogs = localLogs.map((log) => {
       const status = log.status || 'pendente';
       const machine = machineMap.get(log.machine_id);
-      const rate = log.hourly_rate || machine?.hourly_rate || 0;
+      const logKey = String(log.server_id || log.id || '');
+      const storedRate = logKey ? storedRates[logKey] : undefined;
+      const rate = Number(
+        (log.hourly_rate !== undefined && Number(log.hourly_rate) > 0
+          ? Number(log.hourly_rate)
+          : undefined) ??
+          (storedRate?.hourly_rate !== undefined && storedRate.hourly_rate > 0
+            ? storedRate.hourly_rate
+            : undefined) ??
+          machine?.hourly_rate ??
+          0
+      );
       const startH = Number(
         log.start_hours ??
         (log as any).initial_horimeter ??
@@ -414,9 +488,11 @@ export async function fetchAdminWorkLogs(
       const totalHours =
         rawHours > 0 ? rawHours : calculateTotalHours(startH, endH);
       const totalAmount =
-        log.total_amount !== undefined && log.total_amount > 0
+        rate > 0 && totalHours > 0
+          ? Number((totalHours * rate).toFixed(2))
+          : log.total_amount !== undefined && log.total_amount > 0
           ? log.total_amount
-          : totalHours * rate;
+          : Number((totalHours * rate).toFixed(2));
       const startedAt = log.started_at || log.created_at;
       const finishedAt =
         log.finished_at || (status !== 'em_andamento' ? log.created_at : undefined);
@@ -534,27 +610,68 @@ export async function updateAdminWorkLog(
     const existing = await findLocalWorkLog(workLogId);
     const targetServerId = existing?.server_id || String(workLogId);
 
+    setStoredWorkLogRate(workLogId, rate, totalAmount);
+    if (targetServerId) {
+      setStoredWorkLogRate(targetServerId, rate, totalAmount);
+    }
+
     // 1. Se online, atualiza na tabela `work_logs` do Supabase e exige confirmação
     if (online) {
-      const { error } = await supabase
+      const basePayload = {
+        client_name: updates.client_name.trim(),
+        client_phone: cleanPhone,
+        service_date: updates.service_date,
+        machine_id: updates.machine_id,
+        start_hours: Number(updates.start_hours),
+        end_hours: Number(updates.end_hours),
+        observations: cleanObs,
+        ...(updates.payment_status ? { payment_status: updates.payment_status } : {}),
+        updated_at: now,
+      };
+
+      const fullPayload = {
+        ...basePayload,
+        hourly_rate: rate,
+        total_amount: totalAmount,
+      };
+
+      let { error } = await supabase
         .from('work_logs')
-        .update({
-          client_name: updates.client_name.trim(),
-          client_phone: cleanPhone,
-          service_date: updates.service_date,
-          machine_id: updates.machine_id,
-          start_hours: Number(updates.start_hours),
-          end_hours: Number(updates.end_hours),
-          observations: cleanObs,
-          ...(updates.payment_status ? { payment_status: updates.payment_status } : {}),
-          updated_at: now,
-        })
+        .update(fullPayload)
         .eq('id', targetServerId);
+
+      // Fallback resiliente caso o schema remoto não possua alguma coluna financeira opcional
+      if (
+        error &&
+        (error.message?.includes('hourly_rate') ||
+          error.message?.includes('total_amount') ||
+          error.message?.includes('column'))
+      ) {
+        const retryRes = await supabase
+          .from('work_logs')
+          .update(basePayload)
+          .eq('id', targetServerId);
+        error = retryRes.error;
+      }
 
       if (error) {
         console.error('[Supabase updateAdminWorkLog Error]:', error);
         toast.error(error.message);
         throw new Error(error.message);
+      }
+
+      // Mantém lançamento financeiro sincronizado caso o serviço já possua entrada em financial_entries
+      try {
+        await supabase
+          .from('financial_entries')
+          .update({
+            client_name: updates.client_name.trim(),
+            amount: totalAmount,
+            service_date: updates.service_date,
+          })
+          .eq('work_log_id', targetServerId);
+      } catch {
+        // Ignora silenciosamente se não houver lançamento vinculado
       }
     }
 
@@ -671,6 +788,11 @@ export async function approveWorkLog(
       totalAmount > 0 ? totalAmount : Number((targetHours * hourly_rate).toFixed(2));
     const payment_status: PaymentStatus =
       (existing?.payment_status as PaymentStatus) || 'a_receber';
+
+    setStoredWorkLogRate(workLogId, hourly_rate, total_amount);
+    if (targetServerId) {
+      setStoredWorkLogRate(targetServerId, hourly_rate, total_amount);
+    }
 
     // 1. Se online, envia aprovação completa e lançamento financeiro ao Supabase usando o UUID oficial
     if (online) {

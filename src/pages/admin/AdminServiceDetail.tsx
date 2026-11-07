@@ -10,6 +10,7 @@ import {
   type ExtendedWorkLog,
 } from '../../services/adminService';
 import type { Machine, PaymentStatus } from '../../types/database';
+import { toast } from '../../services/syncService';
 import { generateSingleServiceReceiptPdf } from '../../utils/pdfGenerator';
 import {
   formatDateBr,
@@ -112,9 +113,10 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
     });
   }, [serviceId]);
 
-  const numStart = parseFloat(startHoursInput.replace(',', '.')) || 0;
-  const numEnd = parseFloat(endHoursInput.replace(',', '.')) || 0;
-  const numericRate = parseFloat(hourlyRateInput.replace(',', '.')) || 0;
+  const numStart = parseFloat(String(startHoursInput).replace(',', '.')) || 0;
+  const numEnd = parseFloat(String(endHoursInput).replace(',', '.')) || 0;
+  const numericRate =
+    parseFloat(String(hourlyRateInput).replace(/[^\d.,-]/g, '').replace(',', '.')) || 0;
   const calculatedHours = calculateTotalHours(numStart, numEnd);
   const calculatedTotal = Number((calculatedHours * numericRate).toFixed(2));
 
@@ -193,6 +195,7 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
       start_hours: numStart,
       end_hours: numEnd,
       hourly_rate: numericRate,
+      total_amount: calculatedTotal,
       billing_unit: isKm ? 'km' : 'hour',
       observations: cleanObs,
     });
@@ -219,7 +222,9 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
             }
           : null
       );
+      toast.success('Alterações salvas com sucesso!');
       setFeedback({ type: 'success', message: 'Alterações salvas com sucesso!' });
+      onActionComplete();
       return true;
     } else {
       setFeedback({ type: 'error', message: result.error || 'Erro ao salvar alterações.' });
@@ -257,6 +262,7 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
       start_hours: numStart,
       end_hours: numEnd,
       hourly_rate: numericRate,
+      total_amount: calculatedTotal,
       billing_unit: isKm ? 'km' : 'hour',
       observations: cleanObs,
     });
