@@ -9,6 +9,8 @@
     --retro-bg: #F8FAFC;
     --retro-card: #FFFFFF;
     --retro-border: #E2E8F0;
+    --sat: env(safe-area-inset-top, 0px);
+    --sab: env(safe-area-inset-bottom, 0px);
   }
 
   html,
@@ -35,12 +37,14 @@
   }
 }
 
-/* Utilitários para áreas de segurança em dispositivos móveis (Notch / Home bar) */
+/* Utilitários para áreas de segurança em dispositivos móveis (Notch / Dynamic Island / Home bar) */
+.safe-top,
 .pt-safe {
-  padding-top: env(safe-area-inset-top, 0px);
+  padding-top: max(12px, env(safe-area-inset-top, 0px));
 }
+.safe-bottom,
 .pb-safe {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
 }
 .min-h-screen-safe {
   min-height: calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));

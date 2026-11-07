@@ -25,7 +25,7 @@ export const ServiceSuccess: React.FC<ServiceSuccessProps> = ({ serviceData, onB
     <div className="relative flex flex-col justify-between w-full max-w-md mx-auto min-h-screen bg-[#F8FAFC] shadow-2xl">
       
       {/* 1. ESPAÇAMENTO STATUS BAR */}
-      <div className="w-full h-8 pt-3 px-6 flex justify-between items-center text-xs text-[#0F172A]">
+      <div className="w-full pt-[max(0.75rem,env(safe-area-inset-top))] px-6 pb-2 flex justify-between items-center text-xs text-[#0F172A]">
         <span className="font-semibold">{formatTimeHHMM()}</span>
         {!isOnline && (
           <div className="flex items-center gap-1 text-[10px] bg-[#FEF3C7] text-[#B45309] font-bold px-2 py-0.5 rounded-full">

@@ -303,7 +303,7 @@ export function App() {
         <div
           role="status"
           aria-live="polite"
-          className="fixed top-4 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[calc(100%-2rem)] bg-[#0F172A] text-white px-4 py-3 rounded-2xl shadow-xl border border-slate-700 flex items-center gap-2.5 text-xs font-bold animate-fade-in"
+          className="fixed top-[max(1rem,env(safe-area-inset-top))] left-1/2 -translate-x-1/2 z-50 max-w-sm w-[calc(100%-2rem)] bg-[#0F172A] text-white px-4 py-3 rounded-2xl shadow-xl border border-slate-700 flex items-center gap-2.5 text-xs font-bold animate-fade-in"
         >
           <CheckCircle2 className="w-4 h-4 text-[#FBBF24] shrink-0" />
           <span>{syncToast}</span>
@@ -313,7 +313,7 @@ export function App() {
         <div
           role="alert"
           aria-live="assertive"
-          className="fixed top-16 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[calc(100%-2rem)] bg-red-600 text-white px-4 py-3 rounded-2xl shadow-xl border border-red-400 flex items-center gap-2.5 text-xs font-bold animate-fade-in"
+          className="fixed top-[calc(max(1rem,env(safe-area-inset-top))+3.5rem)] left-1/2 -translate-x-1/2 z-50 max-w-sm w-[calc(100%-2rem)] bg-red-600 text-white px-4 py-3 rounded-2xl shadow-xl border border-red-400 flex items-center gap-2.5 text-xs font-bold animate-fade-in"
         >
           <AlertTriangle className="w-4 h-4 text-white shrink-0" />
           <span>Erro na nuvem: {syncErrorToast}</span>

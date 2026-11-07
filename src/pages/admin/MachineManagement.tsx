@@ -251,7 +251,7 @@ export const MachineManagement: React.FC<MachineManagementProps> = ({
       {successMessage && (
         <div
           role="status"
-          className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 bg-emerald-600 text-white text-xs font-bold rounded-xl shadow-lg flex items-center gap-2 animate-fade-in"
+          className="fixed top-[max(1rem,env(safe-area-inset-top))] left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 bg-emerald-600 text-white text-xs font-bold rounded-xl shadow-lg flex items-center gap-2 animate-fade-in"
         >
           <CheckCircle2 className="w-4 h-4 text-white shrink-0" />
           <span>{successMessage}</span>
@@ -259,7 +259,7 @@ export const MachineManagement: React.FC<MachineManagementProps> = ({
       )}
 
       {/* 1. TOPO: CABEÇALHO E SEGMENTED CONTROL ("Máquinas" vs "Meus Clientes") */}
-      <header className="px-4 sm:px-5 pt-4 pb-3 bg-white border-b border-[#E2E8F0] sticky top-0 z-20 space-y-3">
+      <header className="px-4 sm:px-5 pt-[max(1rem,env(safe-area-inset-top))] pb-3 bg-white border-b border-[#E2E8F0] sticky top-0 z-20 space-y-3">
         <div className="flex items-center justify-between gap-2 min-w-0">
           <div className="flex items-center gap-2 min-w-0">
             <button

@@ -333,7 +333,7 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
     <div className="relative flex flex-col justify-between w-full max-w-md mx-auto min-h-screen overflow-y-auto bg-[#F8FAFC] shadow-2xl pb-36">
       
       {/* 1. CABEÇALHO */}
-      <header className="px-6 pt-4 pb-3 bg-white border-b border-[#E2E8F0] sticky top-0 z-20">
+      <header className="px-6 pt-[max(1rem,env(safe-area-inset-top))] pb-3 bg-white border-b border-[#E2E8F0] sticky top-0 z-20">
         <div className="flex items-center justify-between text-xs text-[#64748B] mb-1 font-medium">
           <span>{formatTimeHHMM()}</span>
         </div>

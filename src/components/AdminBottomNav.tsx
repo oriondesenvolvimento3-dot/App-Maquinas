@@ -38,7 +38,7 @@ export const AdminBottomNav: React.FC<AdminBottomNavProps> = ({
     activeTab === tab ? 'text-[10px] font-bold' : 'text-[10px] font-medium';
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-[#E2E8F0] px-5 py-2.5 flex items-center justify-between z-40 shadow-lg">
+    <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-[#E2E8F0] px-5 pt-2.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex items-center justify-between z-40 shadow-lg">
       {/* Aba Início */}
       <button
         type="button"

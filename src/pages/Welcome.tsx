@@ -68,7 +68,7 @@ export const Welcome: React.FC = () => {
     <div className="fixed inset-0 h-full w-full overflow-hidden overscroll-none touch-manipulation select-none flex flex-col justify-between items-center bg-[#F8FAFC] px-6 py-4">
       
       {/* 1. TOP STATUS BAR (Relógio em tempo real sincronizado) */}
-      <header className="w-full max-w-md flex items-center justify-between px-1 pt-1 pb-1 text-[#0F172A] z-20">
+      <header className="w-full max-w-md flex items-center justify-between px-1 pt-[max(0.25rem,env(safe-area-inset-top))] pb-1 text-[#0F172A] z-20">
         <span className="font-semibold text-xs tracking-tight text-[#0F172A]">{currentTime}</span>
         <div className="flex items-center gap-1.5">
           <Signal className="w-4 h-4 fill-current stroke-none text-[#0F172A]" />
