@@ -156,6 +156,35 @@ describe('Fluxo Administrativo - Gestão, Conferência e Métricas Financeiras',
       expect(rejectedOnly.length).toBe(1);
       expect(rejectedOnly[0].client_name).toBe('Cliente B');
     });
+
+    it('deve aceitar e normalizar serviços gravados com status pending (inglês) na listagem e métricas de pendentes', async () => {
+      await db.offline_work_logs.add({
+        machine_id: 'mach-1',
+        machine_name: 'Retro 01',
+        operator_id: 'op-1',
+        operator_name: 'João',
+        client_name: 'Castro',
+        service_date: '2026-11-06',
+        start_hours: 100,
+        end_hours: 104,
+        total_hours: 4,
+        observations: 'Finalizado pelo operador',
+        status: 'pending' as any,
+        hourly_rate: 180,
+        total_amount: 720,
+        sync_status: 'synced',
+        created_at: new Date().toISOString(),
+      });
+
+      const pendentes = await fetchAdminWorkLogs('pendente');
+      const castro = pendentes.find((s) => s.client_name === 'Castro');
+      expect(castro).toBeDefined();
+      expect(castro?.status).toBe('pendente');
+      expect(castro?.total_amount).toBe(720);
+
+      const metrics = await fetchAdminMetrics();
+      expect(metrics.pendingAmount).toBeGreaterThanOrEqual(720);
+    });
   });
 
   describe('Fluxo de Aprovação e Rejeição de Serviços', () => {

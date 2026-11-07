@@ -44,7 +44,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     pendingAmount: 0,
   });
 
-  const [recentServices, setRecentServices] = useState<ExtendedWorkLog[]>([]);
+  const [allServices, setAllServices] = useState<ExtendedWorkLog[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const loadDashboardData = useCallback(() => {
@@ -52,7 +52,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     Promise.all([
       fetchAdminMetrics().then(setMetrics),
       fetchAdminWorkLogs('todos').then((logs) => {
-        setRecentServices(logs.slice(0, 4));
+        setAllServices(logs);
       }),
     ]).finally(() => {
       setIsLoading(false);
@@ -68,34 +68,61 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     };
   }, [loadDashboardData]);
 
-  const getStatusBadge = (status: 'pendente' | 'aprovado' | 'rejeitado' | 'em_andamento') => {
-    switch (status) {
-      case 'aprovado':
-        return (
-          <span className="px-2.5 py-1 bg-[#DCFCE7] text-[#166534] rounded-full text-xs font-semibold">
-            Aprovado
-          </span>
-        );
-      case 'pendente':
-        return (
-          <span className="px-2.5 py-1 bg-[#FEF3C7] text-[#B45309] rounded-full text-xs font-semibold">
-            Pendente
-          </span>
-        );
-      case 'rejeitado':
-        return (
-          <span className="px-2.5 py-1 bg-[#FEE2E2] text-[#991B1B] rounded-full text-xs font-semibold">
-            Rejeitado
-          </span>
-        );
-      case 'em_andamento':
-        return (
-          <span className="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-xs font-semibold inline-flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
-            Em andamento
-          </span>
-        );
+  // Identifica serviços aguardando aprovação
+  const pendingServices = allServices.filter(
+    (s) => s.status === 'pendente' || (s.status as any) === 'pending'
+  );
+
+  // Ordena lista de serviços recentes priorizando pendentes no topo
+  const recentServices = [...allServices]
+    .sort((a, b) => {
+      const aPending = a.status === 'pendente' || (a.status as any) === 'pending';
+      const bPending = b.status === 'pendente' || (b.status as any) === 'pending';
+      if (aPending && !bPending) return -1;
+      if (!aPending && bPending) return 1;
+
+      const dateA = new Date(a.created_at || a.service_date).getTime();
+      const dateB = new Date(b.created_at || b.service_date).getTime();
+      return dateB - dateA;
+    })
+    .slice(0, 6);
+
+  const getStatusBadge = (status: 'pendente' | 'aprovado' | 'rejeitado' | 'em_andamento' | string) => {
+    const s = String(status || '').toLowerCase().trim();
+    if (s === 'aprovado' || s === 'approved') {
+      return (
+        <span className="px-2.5 py-1 bg-[#DCFCE7] text-[#166534] rounded-full text-xs font-semibold">
+          Aprovado
+        </span>
+      );
     }
+    if (s === 'pendente' || s === 'pending') {
+      return (
+        <span className="px-2.5 py-1 bg-[#FEF3C7] text-[#B45309] rounded-full text-xs font-semibold">
+          Pendente
+        </span>
+      );
+    }
+    if (s === 'rejeitado' || s === 'rejected') {
+      return (
+        <span className="px-2.5 py-1 bg-[#FEE2E2] text-[#991B1B] rounded-full text-xs font-semibold">
+          Rejeitado
+        </span>
+      );
+    }
+    if (s === 'em_andamento' || s === 'in_progress') {
+      return (
+        <span className="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-xs font-semibold inline-flex items-center gap-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+          Em andamento
+        </span>
+      );
+    }
+    return (
+      <span className="px-2.5 py-1 bg-[#FEF3C7] text-[#B45309] rounded-full text-xs font-semibold">
+        Pendente
+      </span>
+    );
   };
 
   return (
@@ -185,11 +212,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
 
           {/* Card 4: Pendentes */}
-          <div className="bg-white border border-[#E2E8F0] rounded-2xl p-4 shadow-sm flex flex-col justify-between h-28">
-            <div className="flex items-center text-[#0F172A]">
-              <div className="p-1.5 bg-[#F8FAFC] rounded-lg border border-[#E2E8F0]">
-                <RotateCcw className="w-4 h-4 text-[#0F172A]" />
+          <div
+            onClick={onNavigateToServices}
+            className="bg-white border border-[#E2E8F0] hover:border-[#F59E0B] rounded-2xl p-4 shadow-sm flex flex-col justify-between h-28 cursor-pointer transition-all group"
+            title="Clique para ver serviços pendentes"
+          >
+            <div className="flex items-center justify-between text-[#0F172A]">
+              <div className="p-1.5 bg-[#F8FAFC] group-hover:bg-[#FEF3C7] rounded-lg border border-[#E2E8F0] group-hover:border-[#FDE68A] transition-colors">
+                <RotateCcw className="w-4 h-4 text-[#0F172A] group-hover:text-[#B45309]" />
               </div>
+              {pendingServices.length > 0 && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-[#FEF3C7] text-[#B45309]">
+                  {pendingServices.length} pend.
+                </span>
+              )}
             </div>
             <div>
               <p className="text-xs font-medium text-[#64748B]">Pendentes</p>
@@ -199,6 +235,63 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Bloco de Destaque: Aguardando Aprovação */}
+        {!isLoading && pendingServices.length > 0 && (
+          <div className="bg-[#FEF3C7]/40 border-2 border-[#FDE68A] rounded-2xl p-4 shadow-sm space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#F59E0B] animate-pulse"></span>
+                <h2 className="text-sm font-extrabold text-[#92400E] tracking-tight">
+                  Aguardando Aprovação ({pendingServices.length})
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={onNavigateToServices}
+                className="text-xs font-bold text-[#B45309] hover:text-[#78350F] flex items-center gap-0.5 transition-colors cursor-pointer"
+              >
+                <span>Ver fila</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {pendingServices.slice(0, 3).map((service) => (
+                <div
+                  key={`pending-${service.id}`}
+                  onClick={() => onNavigateToServiceDetail(service.id)}
+                  className="bg-white border border-[#FDE68A] hover:border-[#F59E0B] rounded-xl p-3 shadow-xs transition-all cursor-pointer flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-full bg-[#FEF3C7] border border-[#FDE68A] flex items-center justify-center flex-shrink-0 text-[#B45309]">
+                      <Truck className="w-4 h-4 text-[#B45309]" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-[#0F172A] truncate">
+                        {service.client_name === 'Em andamento' || service.client_name === 'A definir'
+                          ? 'Cliente a definir'
+                          : service.client_name || 'Cliente a definir'}
+                      </p>
+                      <p className="text-[11px] text-[#64748B] font-medium truncate">
+                        {service.machine_name} • {service.total_hours}h
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col items-end gap-1 flex-shrink-0 ml-2">
+                    <span className="px-2 py-0.5 bg-[#FEF3C7] text-[#B45309] border border-[#FDE68A] rounded-full text-[10px] font-extrabold">
+                      Requer Aprovação
+                    </span>
+                    <span className="text-xs font-bold text-[#0F172A]">
+                      {formatCurrencyBRL(service.total_amount)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Seção: Serviços Recentes */}
         <div className="space-y-3">

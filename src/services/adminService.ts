@@ -129,6 +129,20 @@ async function findLocalWorkLog(
 }
 
 /**
+ * Normaliza qualquer status para o padrão canônico da aplicação
+ * Suporta indistintamente 'pendente' / 'pending', 'aprovado' / 'approved', etc.
+ */
+export function normalizeWorkLogStatus(status?: string | null): WorkLogStatus {
+  if (!status) return 'pendente';
+  const s = String(status).toLowerCase().trim();
+  if (s === 'pending' || s === 'pendente') return 'pendente';
+  if (s === 'approved' || s === 'aprovado') return 'aprovado';
+  if (s === 'rejected' || s === 'rejeitado') return 'rejeitado';
+  if (s === 'in_progress' || s === 'em_andamento') return 'em_andamento';
+  return 'pendente';
+}
+
+/**
  * 1. Calcula as métricas consolidadas do painel administrativo
  * Totalmente baseado em dados reais do Supabase (ou Dexie se offline).
  * Se não houver registros, todos os indicadores retornam 0.
@@ -153,9 +167,10 @@ export async function fetchAdminMetrics(): Promise<AdminMetrics> {
 
     totalHours += hours;
 
-    if (log.status === 'aprovado') {
+    const norm = normalizeWorkLogStatus(log.status);
+    if (norm === 'aprovado') {
       billedAmount += amount;
-    } else if (log.status === 'pendente') {
+    } else if (norm === 'pendente') {
       pendingAmount += amount;
     }
   }
@@ -189,7 +204,21 @@ export async function fetchAdminWorkLogs(
 
       if (filterStatus === 'todos') {
         // No painel do administrador, NUNCA lista serviços em andamento (check-in sem check-out)
-        query = query.neq('status', 'em_andamento').neq('status', 'in_progress' as any);
+        // Aceita tanto português quanto inglês para resiliência máxima
+        query = query.in('status', [
+          'pendente',
+          'pending',
+          'aprovado',
+          'approved',
+          'rejeitado',
+          'rejected',
+        ] as any);
+      } else if (filterStatus === 'pendente') {
+        query = query.in('status', ['pendente', 'pending'] as any);
+      } else if (filterStatus === 'aprovado') {
+        query = query.in('status', ['aprovado', 'approved'] as any);
+      } else if (filterStatus === 'rejeitado') {
+        query = query.in('status', ['rejeitado', 'rejected'] as any);
       } else {
         query = query.eq('status', filterStatus);
       }
@@ -203,30 +232,30 @@ export async function fetchAdminWorkLogs(
         if (data.length > 0) {
           // Carrega máquinas e perfis locais ou do Dexie para resolver machine_name e hourly_rate
           let cachedMachines = await db.cached_machines.toArray();
-          const machineIds = new Set(data.map((item: any) => item.machine_id));
+          const machineIds = new Set(data.map((item: any) => item.machine_id).filter(Boolean));
           const missingMachine = Array.from(machineIds).some(
             (id) => !cachedMachines.some((m) => m.id === id)
           );
           if (missingMachine || cachedMachines.length === 0) {
             const { data: remoteMachines } = await supabase.from('machines').select('*');
-            if (remoteMachines) {
+            if (remoteMachines && remoteMachines.length > 0) {
               await db.cached_machines.bulkPut(remoteMachines as Machine[]);
-              cachedMachines = remoteMachines as Machine[];
+              cachedMachines = await db.cached_machines.toArray();
             }
           }
           const machineMap = new Map(cachedMachines.map((m) => [m.id, m]));
           const storedUnits = getStoredMachineBillingUnits();
 
           let cachedProfiles = await db.cached_profiles.toArray();
-          const profileIds = new Set(data.map((item: any) => item.operator_id));
+          const profileIds = new Set(data.map((item: any) => item.operator_id).filter(Boolean));
           const missingProfile = Array.from(profileIds).some(
             (id) => !cachedProfiles.some((p) => p.id === id)
           );
           if (missingProfile || cachedProfiles.length === 0) {
             const { data: remoteProfiles } = await supabase.from('profiles').select('*');
-            if (remoteProfiles) {
+            if (remoteProfiles && remoteProfiles.length > 0) {
               await db.cached_profiles.bulkPut(remoteProfiles);
-              cachedProfiles = remoteProfiles;
+              cachedProfiles = await db.cached_profiles.toArray();
             }
           }
           const profileMap = new Map(cachedProfiles.map((p) => [p.id, p]));
@@ -236,7 +265,9 @@ export async function fetchAdminWorkLogs(
           );
 
           resultLogs = data.map((item: any) => {
-            const machine = machineMap.get(item.machine_id);
+            const machine =
+              machineMap.get(item.machine_id) ||
+              Array.from(machineMap.values()).find((m) => m.name === item.machine_name);
             const profile = profileMap.get(item.operator_id);
             const localMatch = localByServerId.get(item.id);
 
@@ -311,7 +342,7 @@ export async function fetchAdminWorkLogs(
               end_hours: endH,
               total_hours: totalHours,
               observations: item.observations,
-              status: item.status || 'pendente',
+              status: normalizeWorkLogStatus(item.status),
               payment_status: (item.payment_status ||
                 localMatch?.payment_status ||
                 'a_receber') as PaymentStatus,
@@ -331,7 +362,7 @@ export async function fetchAdminWorkLogs(
 
           if (filterStatus === 'todos') {
             resultLogs = resultLogs.filter(
-              (l) => l.status !== 'em_andamento' && (l.status as any) !== 'in_progress'
+              (l) => normalizeWorkLogStatus(l.status) !== 'em_andamento'
             );
           }
         }
@@ -413,7 +444,7 @@ export async function fetchAdminWorkLogs(
         end_hours: endH,
         total_hours: totalHours,
         observations: log.observations,
-        status,
+        status: normalizeWorkLogStatus(log.status),
         payment_status: (log.payment_status || 'a_receber') as PaymentStatus,
         started_at: startedAt,
         finished_at: finishedAt,
@@ -430,18 +461,31 @@ export async function fetchAdminWorkLogs(
     });
 
     if (filterStatus !== 'todos') {
-      resultLogs = resultLogs.filter((l) => l.status === filterStatus);
+      resultLogs = resultLogs.filter((l) => {
+        const norm = normalizeWorkLogStatus(l.status);
+        if (filterStatus === 'pendente') return norm === 'pendente';
+        if (filterStatus === 'aprovado') return norm === 'aprovado';
+        if (filterStatus === 'rejeitado') return norm === 'rejeitado';
+        return l.status === filterStatus;
+      });
     } else {
       resultLogs = resultLogs.filter(
-        (l) => l.status !== 'em_andamento' && (l.status as any) !== 'in_progress'
+        (l) => normalizeWorkLogStatus(l.status) !== 'em_andamento'
       );
     }
   }
 
-  // Ordena por data decrescente
-  resultLogs.sort(
-    (a, b) => new Date(b.service_date).getTime() - new Date(a.service_date).getTime()
-  );
+  // Ordena por prioridade: pendentes primeiro, depois data de serviço/criação decrescente
+  resultLogs.sort((a, b) => {
+    const aPending = normalizeWorkLogStatus(a.status) === 'pendente';
+    const bPending = normalizeWorkLogStatus(b.status) === 'pendente';
+    if (aPending && !bPending) return -1;
+    if (!aPending && bPending) return 1;
+
+    const dateA = new Date(a.created_at || a.service_date).getTime();
+    const dateB = new Date(b.created_at || b.service_date).getTime();
+    return dateB - dateA;
+  });
 
   return resultLogs;
 }

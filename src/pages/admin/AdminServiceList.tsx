@@ -81,34 +81,42 @@ export const AdminServiceList: React.FC<AdminServiceListProps> = ({
     };
   }, [loadServices]);
 
-  const getStatusBadge = (status: 'pendente' | 'aprovado' | 'rejeitado' | 'em_andamento') => {
-    switch (status) {
-      case 'aprovado':
-        return (
-          <span className="px-2.5 py-1 bg-[#DCFCE7] text-[#166534] rounded-full text-xs font-semibold">
-            Aprovado
-          </span>
-        );
-      case 'pendente':
-        return (
-          <span className="px-2.5 py-1 bg-[#FEF3C7] text-[#B45309] rounded-full text-xs font-semibold">
-            Pendente
-          </span>
-        );
-      case 'rejeitado':
-        return (
-          <span className="px-2.5 py-1 bg-[#FEE2E2] text-[#991B1B] rounded-full text-xs font-semibold">
-            Rejeitado
-          </span>
-        );
-      case 'em_andamento':
-        return (
-          <span className="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-xs font-semibold inline-flex items-center gap-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
-            Em andamento
-          </span>
-        );
+  const getStatusBadge = (status: 'pendente' | 'aprovado' | 'rejeitado' | 'em_andamento' | string) => {
+    const s = String(status || '').toLowerCase().trim();
+    if (s === 'aprovado' || s === 'approved') {
+      return (
+        <span className="px-2.5 py-1 bg-[#DCFCE7] text-[#166534] rounded-full text-xs font-semibold">
+          Aprovado
+        </span>
+      );
     }
+    if (s === 'pendente' || s === 'pending') {
+      return (
+        <span className="px-2.5 py-1 bg-[#FEF3C7] text-[#B45309] rounded-full text-xs font-semibold">
+          Pendente
+        </span>
+      );
+    }
+    if (s === 'rejeitado' || s === 'rejected') {
+      return (
+        <span className="px-2.5 py-1 bg-[#FEE2E2] text-[#991B1B] rounded-full text-xs font-semibold">
+          Rejeitado
+        </span>
+      );
+    }
+    if (s === 'em_andamento' || s === 'in_progress') {
+      return (
+        <span className="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-full text-xs font-semibold inline-flex items-center gap-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+          Em andamento
+        </span>
+      );
+    }
+    return (
+      <span className="px-2.5 py-1 bg-[#FEF3C7] text-[#B45309] rounded-full text-xs font-semibold">
+        Pendente
+      </span>
+    );
   };
 
   return (
