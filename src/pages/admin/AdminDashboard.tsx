@@ -354,6 +354,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <p className="text-sm font-bold text-[#0F172A] mt-0.5">
                         {formatCurrencyBRL(service.total_amount)}
                       </p>
+                      {(service.operator_name || (service as any).operator) && (
+                        <span className="text-xs font-medium text-slate-500 block leading-tight mt-0.5">
+                          Op: {service.operator_name || (service as any).operator}
+                        </span>
+                      )}
                     </div>
                   </div>
 

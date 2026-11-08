@@ -89,7 +89,7 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
         setClientPhoneInput(found.client_phone ? applyPhoneMask(found.client_phone) : '');
         setServiceDateInput((found.service_date || '').split('T')[0]);
         setMachineIdInput(found.machine_id || '');
-        setMachineNameInput(found.machine_name || '');
+        setMachineNameInput(found.machine_model || found.machine_name || '');
         const initialHorometer =
           found.start_hours ??
           (found as any).km_initial ??
@@ -127,7 +127,11 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
     setMachineIdInput(newMachineId);
     const chosen = machines.find((m) => m.id === newMachineId);
     if (chosen) {
-      setMachineNameInput(chosen.name);
+      setMachineNameInput(
+        chosen.model && chosen.model.trim() !== '' && chosen.model.trim() !== 'Padrão'
+          ? chosen.model.trim()
+          : chosen.name
+      );
       if (chosen.hourly_rate !== undefined && chosen.hourly_rate > 0) {
         setHourlyRateInput(String(chosen.hourly_rate));
       }
@@ -484,12 +488,25 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
       : formatTimeHHMM(service.end_time, service.finished_at);
 
   // Garante que a máquina atual do serviço apareça nas opções mesmo se não estiver no cache ainda
-  const machineOptions: Array<{ id: string; name: string }> =
+  const machineOptions: Array<{ id: string; name: string; model?: string }> =
     machines.length > 0
       ? machines.some((m) => m.id === machineIdInput)
-        ? machines.map((m) => ({ id: m.id, name: m.name }))
-        : [{ id: machineIdInput, name: machineNameInput || 'Máquina Atual' }, ...machines.map((m) => ({ id: m.id, name: m.name }))]
-      : [{ id: machineIdInput, name: machineNameInput || 'Retroescavadeira' }];
+        ? machines.map((m) => ({ id: m.id, name: m.name, model: m.model }))
+        : [
+            {
+              id: machineIdInput,
+              name: service.machine_model || machineNameInput || 'Máquina Atual',
+              model: service.machine_model || machineNameInput,
+            },
+            ...machines.map((m) => ({ id: m.id, name: m.name, model: m.model })),
+          ]
+      : [
+          {
+            id: machineIdInput,
+            name: service.machine_model || machineNameInput || 'Retroescavadeira',
+            model: service.machine_model || machineNameInput,
+          },
+        ];
 
   return (
     <div className="relative flex flex-col justify-between w-full max-w-md mx-auto min-h-screen bg-[#F8FAFC] shadow-2xl">
@@ -742,9 +759,16 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
                 onChange={(e) => handleMachineSelect(e.target.value)}
                 className="w-full h-11 px-3 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-sm font-bold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] cursor-pointer"
               >
-                {machineOptions.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
+                {machineOptions.map((machine) => (
+                  <option key={machine.id} value={machine.id}>
+                    {machine.model &&
+                    machine.model.trim() !== '' &&
+                    machine.model.trim() !== 'Padrão' &&
+                    machine.model.trim() !== machine.name.trim()
+                      ? `${machine.model} (${machine.name})`
+                      : machine.model && machine.model.trim() !== 'Padrão'
+                      ? machine.model
+                      : machine.name}
                   </option>
                 ))}
               </select>

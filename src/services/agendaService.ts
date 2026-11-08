@@ -138,7 +138,7 @@ export async function fetchScheduledServices(): Promise<ScheduledService[]> {
       // 2. Consulta direta à tabela scheduled_services no Supabase
       let { data, error } = await supabase
         .from('scheduled_services')
-        .select('*, machines(id, name), profiles:operator_id(id, full_name)')
+        .select('*, machines(id, name, model), profiles:operator_id(id, full_name)')
         .order('scheduled_date', { ascending: true });
 
       // Caso a relação FK para profiles não exista no schema público (PGRST200),
@@ -146,7 +146,7 @@ export async function fetchScheduledServices(): Promise<ScheduledService[]> {
       if (error && (error as any).code === 'PGRST200') {
         const fallbackRes = await supabase
           .from('scheduled_services')
-          .select('*, machines(id, name)')
+          .select('*, machines(id, name, model)')
           .order('scheduled_date', { ascending: true });
         data = fallbackRes.data as any;
         error = fallbackRes.error;
@@ -157,9 +157,21 @@ export async function fetchScheduledServices(): Promise<ScheduledService[]> {
         toast.error(error.message);
       } else if (data) {
         const mirroredList: ScheduledService[] = (data as any[]).map((remote) => {
-          const joinedMachineName = remote.machines?.name || null;
+          const joinedMachineModel =
+            remote.machines?.model &&
+            remote.machines.model.trim() !== '' &&
+            remote.machines.model.trim() !== 'Padrão'
+              ? remote.machines.model.trim()
+              : null;
+          const joinedMachineName = joinedMachineModel || remote.machines?.name || null;
           const joinedOperatorName = remote.profiles?.full_name || null;
           const machine = remote.machine_id ? machineMap.get(remote.machine_id) : undefined;
+          const cachedMachineDisplay =
+            machine?.model &&
+            machine.model.trim() !== '' &&
+            machine.model.trim() !== 'Padrão'
+              ? machine.model.trim()
+              : machine?.name || null;
           const profile = remote.operator_id ? profileMap.get(remote.operator_id) : undefined;
 
           const periodVal = (remote.scheduled_period ||
@@ -194,7 +206,7 @@ export async function fetchScheduledServices(): Promise<ScheduledService[]> {
             scheduled_period: periodVal,
             period: periodVal,
             machine_id: remote.machine_id || null,
-            machine_name: joinedMachineName || machine?.name || null,
+            machine_name: joinedMachineName || cachedMachineDisplay || null,
             operator_id: remote.operator_id || null,
             operator_name: joinedOperatorName || profile?.full_name || null,
             location: remote.location || null,

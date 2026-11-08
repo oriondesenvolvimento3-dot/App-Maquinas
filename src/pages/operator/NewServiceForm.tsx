@@ -47,7 +47,11 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
         if (loaded.length > 0) {
           const first = loaded[0];
           setSelectedMachineId(first.id);
-          setSelectedMachineName(first.name);
+          setSelectedMachineName(
+            first.model && first.model.trim() !== '' && first.model.trim() !== 'Padrão'
+              ? first.model.trim()
+              : first.name
+          );
           setStartHours(first.current_hours !== undefined ? String(first.current_hours) : '0');
           try {
             const latest = await getLatestHorimeterForMachine(first.id, first.current_hours);
@@ -68,7 +72,11 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
     setSelectedMachineId(machineId);
     const chosen = machines.find((m) => m.id === machineId);
     if (chosen) {
-      setSelectedMachineName(chosen.name);
+      setSelectedMachineName(
+        chosen.model && chosen.model.trim() !== '' && chosen.model.trim() !== 'Padrão'
+          ? chosen.model.trim()
+          : chosen.name
+      );
       setStartHours(chosen.current_hours !== undefined ? String(chosen.current_hours) : '0');
       try {
         const latest = await getLatestHorimeterForMachine(machineId, chosen.current_hours);
@@ -216,7 +224,15 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
                 >
                   {machines.map((m) => (
                     <option key={m.id} value={m.id}>
-                      {m.name} {m.model ? `(${m.model})` : ''} {m.billing_unit === 'km' ? '• Guincho (KM)' : ''}
+                      {m.model &&
+                      m.model.trim() !== '' &&
+                      m.model.trim() !== 'Padrão' &&
+                      m.model.trim() !== m.name.trim()
+                        ? `${m.model} (${m.name})`
+                        : m.model && m.model.trim() !== 'Padrão'
+                        ? m.model
+                        : m.name}{' '}
+                      {m.billing_unit === 'km' ? '• Guincho (KM)' : ''}
                     </option>
                   ))}
                 </select>

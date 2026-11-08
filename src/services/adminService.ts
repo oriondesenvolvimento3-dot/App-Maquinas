@@ -82,6 +82,7 @@ export interface ExtendedWorkLog {
   server_id?: string | null;
   machine_id: string;
   machine_name: string;
+  machine_model?: string;
   operator_id: string;
   operator_name: string;
   client_name: string;
@@ -231,40 +232,53 @@ export async function fetchAdminWorkLogs(
 
   if (online) {
     try {
-      let query = supabase
-        .from('work_logs')
-        .select('*')
-        .order('service_date', { ascending: false });
+      const applyFilter = (q: any) => {
+        if (filterStatus === 'todos') {
+          // No painel do administrador, NUNCA lista serviços em andamento (check-in sem check-out)
+          // Aceita tanto português quanto inglês para resiliência máxima
+          return q.in('status', [
+            'pendente',
+            'pending',
+            'aprovado',
+            'approved',
+            'rejeitado',
+            'rejected',
+          ] as any);
+        } else if (filterStatus === 'pendente') {
+          return q.in('status', ['pendente', 'pending'] as any);
+        } else if (filterStatus === 'aprovado') {
+          return q.in('status', ['aprovado', 'approved'] as any);
+        } else if (filterStatus === 'rejeitado') {
+          return q.in('status', ['rejeitado', 'rejected'] as any);
+        }
+        return q.eq('status', filterStatus);
+      };
 
-      if (filterStatus === 'todos') {
-        // No painel do administrador, NUNCA lista serviços em andamento (check-in sem check-out)
-        // Aceita tanto português quanto inglês para resiliência máxima
-        query = query.in('status', [
-          'pendente',
-          'pending',
-          'aprovado',
-          'approved',
-          'rejeitado',
-          'rejected',
-        ] as any);
-      } else if (filterStatus === 'pendente') {
-        query = query.in('status', ['pendente', 'pending'] as any);
-      } else if (filterStatus === 'aprovado') {
-        query = query.in('status', ['aprovado', 'approved'] as any);
-      } else if (filterStatus === 'rejeitado') {
-        query = query.in('status', ['rejeitado', 'rejected'] as any);
-      } else {
-        query = query.eq('status', filterStatus);
+      let { data, error } = await applyFilter(
+        supabase
+          .from('work_logs')
+          .select('*, machines(id, name, model, hourly_rate)')
+          .order('service_date', { ascending: false })
+      );
+
+      // Fallback caso o relacionamento FK não esteja no cache do PostgREST
+      if (error) {
+        const fallbackRes = await applyFilter(
+          supabase
+            .from('work_logs')
+            .select('*')
+            .order('service_date', { ascending: false })
+        );
+        data = fallbackRes.data;
+        error = fallbackRes.error;
       }
-
-      const { data, error } = await query;
 
       if (error) {
         console.error('[Supabase fetchAdminWorkLogs Error]:', error);
       } else if (data !== null) {
         fetchedFromSupabase = true;
         if (data.length > 0) {
-          // Carrega máquinas e perfis locais ou do Dexie para resolver machine_name e hourly_rate
+          // Carrega máquinas e perfis locais ou do Dexie para resolver machine_name, machine_model e hourly_rate
           let cachedMachines = await db.cached_machines.toArray();
           const machineIds = new Set(data.map((item: any) => item.machine_id).filter(Boolean));
           const missingMachine = Array.from(machineIds).some(
@@ -300,12 +314,33 @@ export async function fetchAdminWorkLogs(
           );
 
           resultLogs = data.map((item: any) => {
+            const joinedMachine = item.machines || null;
             const machine =
               machineMap.get(item.machine_id) ||
-              Array.from(machineMap.values()).find((m) => m.name === item.machine_name);
+              Array.from(machineMap.values()).find(
+                (m) => m.name === item.machine_name || m.model === item.machine_name
+              );
             const profile = profileMap.get(item.operator_id);
             const localMatch = localByServerId.get(item.id);
             const storedRate = storedRates[String(item.id)];
+
+            const resolvedModel =
+              joinedMachine?.model &&
+              joinedMachine.model.trim() !== '' &&
+              joinedMachine.model.trim() !== 'Padrão'
+                ? joinedMachine.model.trim()
+                : machine?.model &&
+                  machine.model.trim() !== '' &&
+                  machine.model.trim() !== 'Padrão'
+                ? machine.model.trim()
+                : undefined;
+
+            const resolvedDisplayMachine =
+              resolvedModel ||
+              joinedMachine?.name ||
+              machine?.name ||
+              localMatch?.machine_name ||
+              'Retroescavadeira';
 
             const remoteRate =
               item.hourly_rate !== undefined && item.hourly_rate !== null && Number(item.hourly_rate) > 0
@@ -387,11 +422,16 @@ export async function fetchAdminWorkLogs(
               id: item.id,
               server_id: item.id,
               machine_id: item.machine_id,
-              machine_name:
-                machine?.name || localMatch?.machine_name || 'Retroescavadeira',
+              machine_name: resolvedDisplayMachine,
+              machine_model: resolvedModel,
               operator_id: item.operator_id,
               operator_name:
-                profile?.full_name || localMatch?.operator_name || 'Operador',
+                profile?.full_name ||
+                item.operator_name ||
+                localMatch?.operator_name ||
+                joinedMachine?.name ||
+                machine?.name ||
+                'Operador',
               client_name:
                 item.client_name && item.client_name !== 'Em andamento' && item.client_name !== 'A definir'
                   ? item.client_name
@@ -457,7 +497,17 @@ export async function fetchAdminWorkLogs(
 
     resultLogs = localLogs.map((log) => {
       const status = log.status || 'pendente';
-      const machine = machineMap.get(log.machine_id);
+      const machine =
+        machineMap.get(log.machine_id) ||
+        Array.from(machineMap.values()).find(
+          (m) => m.name === log.machine_name || m.model === log.machine_name
+        );
+      const resolvedModel =
+        machine?.model &&
+        machine.model.trim() !== '' &&
+        machine.model.trim() !== 'Padrão'
+          ? machine.model.trim()
+          : undefined;
       const logKey = String(log.server_id || log.id || '');
       const storedRate = logKey ? storedRates[logKey] : undefined;
       const rate = Number(
@@ -507,7 +557,8 @@ export async function fetchAdminWorkLogs(
         id: log.id || log.server_id || `temp-${Math.random()}`,
         server_id: log.server_id,
         machine_id: log.machine_id,
-        machine_name: machine?.name || log.machine_name,
+        machine_name: resolvedModel || machine?.name || log.machine_name,
+        machine_model: resolvedModel,
         operator_id: log.operator_id,
         operator_name: log.operator_name,
         client_name:
@@ -598,12 +649,17 @@ export async function updateAdminWorkLog(
     const cleanPhone = updates.client_phone?.trim() || null;
     const cleanObs = updates.observations?.trim() || null;
 
-    // Resolve o nome da máquina caso tenha sido alterada no dropdown
+    // Resolve o modelo/nome da máquina caso tenha sido alterada no dropdown
     let resolvedMachineName = updates.machine_name;
     if (!resolvedMachineName && updates.machine_id) {
       const cachedMachine = await db.cached_machines.get(updates.machine_id);
       if (cachedMachine) {
-        resolvedMachineName = cachedMachine.name;
+        resolvedMachineName =
+          cachedMachine.model &&
+          cachedMachine.model.trim() !== '' &&
+          cachedMachine.model.trim() !== 'Padrão'
+            ? cachedMachine.model.trim()
+            : cachedMachine.name;
       }
     }
 

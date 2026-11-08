@@ -483,7 +483,12 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
       scheduled_period: formPeriod,
       period: formPeriod,
       machine_id: formMachineId || null,
-      machine_name: selectedMachine?.name || null,
+      machine_name:
+        (selectedMachine?.model &&
+        selectedMachine.model.trim() !== '' &&
+        selectedMachine.model.trim() !== 'Padrão'
+          ? selectedMachine.model.trim()
+          : selectedMachine?.name) || null,
       operator_id: formOperatorId || null,
       operator_name:
         selectedOperator?.full_name || formOperatorCustomName.trim() || null,
@@ -1493,7 +1498,14 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
                   <option value="">A definir</option>
                   {machines.map((m) => (
                     <option key={m.id} value={m.id}>
-                      {m.name}
+                      {m.model &&
+                      m.model.trim() !== '' &&
+                      m.model.trim() !== 'Padrão' &&
+                      m.model.trim() !== m.name.trim()
+                        ? `${m.model} (${m.name})`
+                        : m.model && m.model.trim() !== 'Padrão'
+                        ? m.model
+                        : m.name}
                     </option>
                   ))}
                 </select>
