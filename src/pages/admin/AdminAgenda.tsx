@@ -1476,104 +1476,27 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
                 />
               </div>
 
-              {/* Período (botões de alternância rápida: Manhã | Tarde | Dia Todo) */}
+              {/* Máquina (largura total) */}
               <div>
-                <span className="block text-[11px] font-bold text-[#475569] uppercase tracking-wider mb-1">
-                  Período / Turno na Grade
-                </span>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setFormPeriod('manha')}
-                    className={`h-10 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                      formPeriod === 'manha'
-                        ? 'bg-[#0F172A] text-white border-[#0F172A]'
-                        : 'bg-[#F8FAFC] text-[#475569] border-[#CBD5E1] hover:bg-[#F1F5F9]'
-                    }`}
-                  >
-                    Manhã (07-12h)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFormPeriod('tarde')}
-                    className={`h-10 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                      formPeriod === 'tarde'
-                        ? 'bg-[#0F172A] text-white border-[#0F172A]'
-                        : 'bg-[#F8FAFC] text-[#475569] border-[#CBD5E1] hover:bg-[#F1F5F9]'
-                    }`}
-                  >
-                    Tarde (13-17h)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setFormPeriod('integral')}
-                    className={`h-10 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                      formPeriod === 'integral'
-                        ? 'bg-[#0F172A] text-white border-[#0F172A]'
-                        : 'bg-[#F8FAFC] text-[#475569] border-[#CBD5E1] hover:bg-[#F1F5F9]'
-                    }`}
-                  >
-                    Integral (Dia)
-                  </button>
-                </div>
-              </div>
-
-              {/* Máquina e Operador */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label
-                    htmlFor="schedule-machine"
-                    className="block text-[11px] font-bold text-[#475569] uppercase tracking-wider mb-1"
-                  >
-                    Máquina
-                  </label>
-                  <select
-                    id="schedule-machine"
-                    value={formMachineId}
-                    onChange={(e) => setFormMachineId(e.target.value)}
-                    className="w-full h-11 px-3 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-xs font-semibold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
-                  >
-                    <option value="">A definir</option>
-                    {machines.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="schedule-operator"
-                    className="block text-[11px] font-bold text-[#475569] uppercase tracking-wider mb-1"
-                  >
-                    Operador
-                  </label>
-                  {operators.length > 0 ? (
-                    <select
-                      id="schedule-operator"
-                      value={formOperatorId}
-                      onChange={(e) => setFormOperatorId(e.target.value)}
-                      className="w-full h-11 px-3 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-xs font-semibold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
-                    >
-                      <option value="">A definir</option>
-                      {operators.map((op) => (
-                        <option key={op.id} value={op.id}>
-                          {op.full_name}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      id="schedule-operator"
-                      type="text"
-                      value={formOperatorCustomName}
-                      onChange={(e) => setFormOperatorCustomName(e.target.value)}
-                      placeholder="Nome do operador"
-                      className="w-full h-11 px-3 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-xs font-semibold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
-                    />
-                  )}
-                </div>
+                <label
+                  htmlFor="schedule-machine"
+                  className="block text-[11px] font-bold text-[#475569] uppercase tracking-wider mb-1"
+                >
+                  Máquina
+                </label>
+                <select
+                  id="schedule-machine"
+                  value={formMachineId}
+                  onChange={(e) => setFormMachineId(e.target.value)}
+                  className="w-full h-11 px-3 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-xs font-semibold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
+                >
+                  <option value="">A definir</option>
+                  {machines.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* Local / Endereço da Obra */}
@@ -1597,48 +1520,25 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
                 </div>
               </div>
 
-              {/* Horas Estimadas e Valor/Taxa Combinada */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label
-                    htmlFor="schedule-estimated-hours"
-                    className="block text-[11px] font-bold text-[#475569] uppercase tracking-wider mb-1"
-                  >
-                    Horas Estimadas (opcional)
-                  </label>
-                  <div className="relative">
-                    <Clock className="w-4 h-4 text-[#64748B] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    <input
-                      id="schedule-estimated-hours"
-                      type="text"
-                      inputMode="decimal"
-                      value={formEstimatedHours}
-                      onChange={(e) => setFormEstimatedHours(e.target.value)}
-                      placeholder="Ex: 6"
-                      className="w-full h-11 pl-9 pr-3 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-xs font-semibold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="schedule-agreed-rate"
-                    className="block text-[11px] font-bold text-[#475569] uppercase tracking-wider mb-1"
-                  >
-                    Valor Combinado R$ (opcional)
-                  </label>
-                  <div className="relative">
-                    <FileText className="w-4 h-4 text-[#64748B] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    <input
-                      id="schedule-agreed-rate"
-                      type="text"
-                      inputMode="decimal"
-                      value={formAgreedRate}
-                      onChange={(e) => setFormAgreedRate(e.target.value)}
-                      placeholder="Ex: 180.00"
-                      className="w-full h-11 pl-9 pr-3 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-xs font-semibold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
-                    />
-                  </div>
+              {/* Valor/Taxa Combinada (largura total) */}
+              <div>
+                <label
+                  htmlFor="schedule-agreed-rate"
+                  className="block text-[11px] font-bold text-[#475569] uppercase tracking-wider mb-1"
+                >
+                  Valor Combinado R$ (opcional)
+                </label>
+                <div className="relative">
+                  <FileText className="w-4 h-4 text-[#64748B] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    id="schedule-agreed-rate"
+                    type="text"
+                    inputMode="decimal"
+                    value={formAgreedRate}
+                    onChange={(e) => setFormAgreedRate(e.target.value)}
+                    placeholder="Ex: 180.00"
+                    className="w-full h-11 pl-9 pr-3 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-xs font-semibold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
+                  />
                 </div>
               </div>
 
