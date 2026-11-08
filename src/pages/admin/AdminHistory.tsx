@@ -164,7 +164,28 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
   const loadHistory = useCallback(() => {
     setIsLoading(true);
     fetchAdminWorkLogs('todos')
-      .then(setAllServices)
+      .then((logs) => {
+        const validLogs = logs
+          .filter(
+            (s) =>
+              s.status !== 'rejeitado' &&
+              (s.status as any) !== 'rejected' &&
+              s.status !== 'em_andamento' &&
+              (s.status as any) !== 'in_progress'
+          )
+          .map((s) => {
+            const safeHours = Number(s.total_hours) || 0;
+            const safeRate = Number(s.hourly_rate) || 0;
+            const safeAmount = Number((safeHours * safeRate).toFixed(2));
+            return {
+              ...s,
+              total_hours: safeHours,
+              hourly_rate: safeRate,
+              total_amount: safeAmount,
+            };
+          });
+        setAllServices(validLogs);
+      })
       .finally(() => setIsLoading(false));
   }, []);
 
@@ -189,6 +210,16 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
   // Filtragem dos serviços por período, cliente e status de pagamento
   const filteredServices = useMemo(() => {
     return allServices.filter((service) => {
+      // Garantir que serviços rejeitados ou em andamento nunca componham o faturamento
+      if (
+        service.status === 'rejeitado' ||
+        (service.status as any) === 'rejected' ||
+        service.status === 'em_andamento' ||
+        (service.status as any) === 'in_progress'
+      ) {
+        return false;
+      }
+
       // Filtro de data
       if (startDate && service.service_date < startDate) return false;
       if (endDate && service.service_date > endDate) return false;
@@ -212,35 +243,41 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
     });
   }, [allServices, startDate, endDate, selectedClient, selectedPaymentStatus]);
 
-  // Consolidação de métricas filtradas dinamicamente
+  // Consolidação de métricas filtradas dinamicamente (soma exata dos itens filtrados exibidos)
   const totalFilteredHours = useMemo(() => {
-    const sum = filteredServices.reduce((acc, curr) => acc + (curr.total_hours || 0), 0);
+    const sum = filteredServices.reduce(
+      (acc, item) => acc + (Number(item.total_hours) || 0),
+      0
+    );
     return Number(sum.toFixed(1));
   }, [filteredServices]);
 
   const totalFilteredAmount = useMemo(() => {
-    return filteredServices.reduce((acc, curr) => {
-      const rate = curr.hourly_rate || 0;
-      return acc + (curr.total_amount !== undefined ? curr.total_amount : curr.total_hours * rate);
-    }, 0);
+    const sum = filteredServices.reduce(
+      (acc, item) => acc + (Number(item.total_amount) || 0),
+      0
+    );
+    return Number(sum.toFixed(2));
   }, [filteredServices]);
 
   const totalPaidAmount = useMemo(() => {
-    return filteredServices.reduce((acc, curr) => {
-      const status = curr.payment_status || 'a_receber';
-      if (status !== 'pago') return acc;
-      const rate = curr.hourly_rate || 0;
-      return acc + (curr.total_amount !== undefined ? curr.total_amount : curr.total_hours * rate);
-    }, 0);
+    const sum = filteredServices
+      .filter(
+        (i) =>
+          i.payment_status === 'pago' || (i.payment_status as any) === 'paid'
+      )
+      .reduce((acc, item) => acc + (Number(item.total_amount) || 0), 0);
+    return Number(sum.toFixed(2));
   }, [filteredServices]);
 
   const totalReceivableAmount = useMemo(() => {
-    return filteredServices.reduce((acc, curr) => {
-      const status = curr.payment_status || 'a_receber';
-      if (status !== 'a_receber') return acc;
-      const rate = curr.hourly_rate || 0;
-      return acc + (curr.total_amount !== undefined ? curr.total_amount : curr.total_hours * rate);
-    }, 0);
+    const sum = filteredServices
+      .filter(
+        (i) =>
+          i.payment_status !== 'pago' && (i.payment_status as any) !== 'paid'
+      )
+      .reduce((acc, item) => acc + (Number(item.total_amount) || 0), 0);
+    return Number(sum.toFixed(2));
   }, [filteredServices]);
 
   const handleTogglePaymentStatus = async (

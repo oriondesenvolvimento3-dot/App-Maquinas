@@ -178,6 +178,45 @@ export function normalizeWorkLogStatus(status?: string | null): WorkLogStatus {
 }
 
 /**
+ * Calcula com segurança o delta real de horas/km trabalhados (end_hours - start_hours),
+ * bloqueando cálculos acidentais que multipliquem o horímetro final acumulado (ex: 1000h)
+ * quando o horímetro inicial foi registrado como 0.
+ */
+export function resolveSafeWorkLogHours(
+  startH: number,
+  endH: number,
+  rawHours: number = 0,
+  billingUnit: BillingUnit = 'hour'
+): number {
+  const s = Number(startH) || 0;
+  const e = Number(endH) || 0;
+  const r = Number(rawHours) || 0;
+
+  if (s > 0) {
+    if (e >= s) {
+      return calculateTotalHours(s, e);
+    }
+    return 0;
+  }
+
+  // Quando start_hours === 0 e end_hours > 0:
+  if (e > 0) {
+    // Bloqueia horímetro acumulado da máquina tratado como delta (ex: 0 -> 1000h)
+    if (billingUnit !== 'km' && e > 24) {
+      return r > 0 && r <= 24 ? Number(r.toFixed(1)) : 0;
+    }
+    return calculateTotalHours(0, e);
+  }
+
+  // Quando start_hours === 0 e end_hours === 0:
+  if (r > 0 && (billingUnit === 'km' || r <= 24)) {
+    return Number(r.toFixed(1));
+  }
+
+  return 0;
+}
+
+/**
  * 1. Calcula as métricas consolidadas do painel administrativo
  * Totalmente baseado em dados reais do Supabase (ou Dexie se offline).
  * Se não houver registros, todos os indicadores retornam 0.
@@ -190,23 +229,26 @@ export async function fetchAdminMetrics(): Promise<AdminMetrics> {
   let pendingAmount = 0;
 
   for (const log of logs) {
-    const rawHours = Number(log.total_hours || 0);
-    const hours =
-      rawHours > 0 ? rawHours : calculateTotalHours(log.start_hours, log.end_hours);
+    const norm = normalizeWorkLogStatus(log.status);
+    if (norm === 'rejeitado' || norm === 'em_andamento') {
+      continue;
+    }
 
-    const rate = log.hourly_rate || 0;
-    const amount =
-      log.total_amount !== undefined && log.total_amount > 0
-        ? log.total_amount
-        : hours * rate;
+    const hours = resolveSafeWorkLogHours(
+      log.start_hours,
+      log.end_hours,
+      Number(log.total_hours || 0),
+      log.billing_unit
+    );
+    const rate = Number(log.hourly_rate) || 0;
+    const amount = Number((hours * rate).toFixed(2));
 
     totalHours += hours;
 
-    const norm = normalizeWorkLogStatus(log.status);
     if (norm === 'aprovado') {
-      billedAmount += amount;
+      billedAmount = Number((billedAmount + amount).toFixed(2));
     } else if (norm === 'pendente') {
-      pendingAmount += amount;
+      pendingAmount = Number((pendingAmount + amount).toFixed(2));
     }
   }
 
@@ -358,7 +400,7 @@ export async function fetchAdminWorkLogs(
                 ? Number(localMatch.hourly_rate)
                 : undefined;
 
-            const rate = Number(
+            const rawRate = Number(
               (storedRate?.hourly_rate !== undefined && storedRate.hourly_rate > 0
                 ? storedRate.hourly_rate
                 : undefined) ??
@@ -367,6 +409,19 @@ export async function fetchAdminWorkLogs(
                 machine?.hourly_rate ??
                 0
             );
+            const rate =
+              rawRate > 5000 && machine?.hourly_rate && Number(machine.hourly_rate) <= 5000
+                ? Number(machine.hourly_rate)
+                : rawRate;
+
+            const resolvedUnit: BillingUnit =
+              item.billing_unit === 'km' ||
+              localMatch?.billing_unit === 'km' ||
+              machine?.billing_unit === 'km' ||
+              storedUnits[item.machine_id] === 'km'
+                ? 'km'
+                : 'hour';
+
             const rawHours = Number(item.total_hours ?? 0);
             const startH = Number(
               item.start_hours ??
@@ -386,18 +441,21 @@ export async function fetchAdminWorkLogs(
               localMatch?.km_final ??
               0
             );
-            const totalHours =
-              rawHours > 0 ? rawHours : calculateTotalHours(startH, endH);
-            const totalAmount =
-              rate > 0 && totalHours > 0
-                ? Number((totalHours * rate).toFixed(2))
-                : item.total_amount !== undefined && Number(item.total_amount) > 0
-                ? Number(item.total_amount)
-                : storedRate?.total_amount !== undefined && storedRate.total_amount > 0
-                ? Number(storedRate.total_amount)
-                : localMatch?.total_amount !== undefined && localMatch.total_amount > 0
-                ? Number(localMatch.total_amount)
-                : Number((totalHours * rate).toFixed(2));
+            const totalHours = resolveSafeWorkLogHours(
+              startH,
+              endH,
+              rawHours,
+              resolvedUnit
+            );
+            const totalAmount = Number((totalHours * rate).toFixed(2));
+
+            // Sanitização automática de registros legados com total_amount inflado (ex: R$ 210.000,00)
+            if (
+              item.total_amount !== undefined &&
+              Math.abs(Number(item.total_amount) - totalAmount) > 1
+            ) {
+              setStoredWorkLogRate(item.id, rate, totalAmount);
+            }
 
             const startedAt = localMatch?.started_at || item.started_at || item.created_at;
             const finishedAt =
@@ -410,13 +468,6 @@ export async function fetchAdminWorkLogs(
               localMatch?.start_time || resolveOptionalTimeHHMM(startedAt);
             const endTime =
               localMatch?.end_time || resolveOptionalTimeHHMM(finishedAt);
-            const resolvedUnit: BillingUnit =
-              item.billing_unit === 'km' ||
-              localMatch?.billing_unit === 'km' ||
-              machine?.billing_unit === 'km' ||
-              storedUnits[item.machine_id] === 'km'
-                ? 'km'
-                : 'hour';
 
             return {
               id: item.id,
@@ -510,7 +561,7 @@ export async function fetchAdminWorkLogs(
           : undefined;
       const logKey = String(log.server_id || log.id || '');
       const storedRate = logKey ? storedRates[logKey] : undefined;
-      const rate = Number(
+      const rawRate = Number(
         (log.hourly_rate !== undefined && Number(log.hourly_rate) > 0
           ? Number(log.hourly_rate)
           : undefined) ??
@@ -520,6 +571,18 @@ export async function fetchAdminWorkLogs(
           machine?.hourly_rate ??
           0
       );
+      const rate =
+        rawRate > 5000 && machine?.hourly_rate && Number(machine.hourly_rate) <= 5000
+          ? Number(machine.hourly_rate)
+          : rawRate;
+
+      const resolvedUnit: BillingUnit =
+        log.billing_unit === 'km' ||
+        machine?.billing_unit === 'km' ||
+        storedUnits[log.machine_id] === 'km'
+          ? 'km'
+          : 'hour';
+
       const startH = Number(
         log.start_hours ??
         (log as any).initial_horimeter ??
@@ -535,23 +598,16 @@ export async function fetchAdminWorkLogs(
         0
       );
       const rawHours = Number(log.total_hours ?? 0);
-      const totalHours =
-        rawHours > 0 ? rawHours : calculateTotalHours(startH, endH);
-      const totalAmount =
-        rate > 0 && totalHours > 0
-          ? Number((totalHours * rate).toFixed(2))
-          : log.total_amount !== undefined && log.total_amount > 0
-          ? log.total_amount
-          : Number((totalHours * rate).toFixed(2));
+      const totalHours = resolveSafeWorkLogHours(
+        startH,
+        endH,
+        rawHours,
+        resolvedUnit
+      );
+      const totalAmount = Number((totalHours * rate).toFixed(2));
       const startedAt = log.started_at || log.created_at;
       const finishedAt =
         log.finished_at || (status !== 'em_andamento' ? log.created_at : undefined);
-      const resolvedUnit: BillingUnit =
-        log.billing_unit === 'km' ||
-        machine?.billing_unit === 'km' ||
-        storedUnits[log.machine_id] === 'km'
-          ? 'km'
-          : 'hour';
 
       return {
         id: log.id || log.server_id || `temp-${Math.random()}`,
@@ -831,17 +887,23 @@ export async function approveWorkLog(
     let targetHours: number = 0;
 
     if (existing) {
-      const rawHours = Number(existing.total_hours ?? 0);
-      const diffHours = calculateTotalHours(existing.start_hours, existing.end_hours);
-      targetHours = rawHours > 0 ? rawHours : diffHours;
+      targetHours = resolveSafeWorkLogHours(
+        existing.start_hours,
+        existing.end_hours,
+        Number(existing.total_hours ?? 0),
+        existing.billing_unit
+      );
     } else {
       targetHours =
         appliedHourlyRate > 0 ? Number((totalAmount / appliedHourlyRate).toFixed(1)) : 0;
     }
 
     const hourly_rate = Number(appliedHourlyRate) || 0;
-    const total_amount =
-      totalAmount > 0 ? totalAmount : Number((targetHours * hourly_rate).toFixed(2));
+    const total_amount = existing
+      ? Number((targetHours * hourly_rate).toFixed(2))
+      : totalAmount > 0
+      ? Number(totalAmount.toFixed(2))
+      : Number((targetHours * hourly_rate).toFixed(2));
     const payment_status: PaymentStatus =
       (existing?.payment_status as PaymentStatus) || 'a_receber';
 
