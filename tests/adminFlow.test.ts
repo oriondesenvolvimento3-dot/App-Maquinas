@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   fetchAdminMetrics,
   fetchAdminWorkLogs,
+  calculateDashboardDailyMetrics,
+  getTodayLocalDateISO,
   updateAdminWorkLog,
   updateWorkLogPaymentStatus,
   approveWorkLog,
@@ -184,6 +186,59 @@ describe('Fluxo Administrativo - Gestão, Conferência e Métricas Financeiras',
 
       const metrics = await fetchAdminMetrics();
       expect(metrics.pendingAmount).toBeGreaterThanOrEqual(720);
+    });
+
+    it('deve filtrar métricas e serviços estritamente para o dia atual na tela de Início (calculateDashboardDailyMetrics)', async () => {
+      const todayISO = getTodayLocalDateISO();
+      await db.offline_work_logs.bulkAdd([
+        {
+          machine_id: 'mach-1',
+          machine_name: '310L 01',
+          operator_id: 'op-1',
+          operator_name: 'Paulo',
+          client_name: 'Serviço de Hoje Aprovado',
+          service_date: todayISO,
+          start_hours: 100,
+          end_hours: 105,
+          total_hours: 5,
+          observations: null,
+          status: 'aprovado',
+          hourly_rate: 160,
+          total_amount: 800,
+          sync_status: 'synced',
+          created_at: new Date().toISOString(),
+        },
+        {
+          machine_id: 'mach-1',
+          machine_name: '310L 01',
+          operator_id: 'op-1',
+          operator_name: 'Paulo',
+          client_name: 'Serviço de Ontem',
+          service_date: '2026-01-15',
+          start_hours: 80,
+          end_hours: 90,
+          total_hours: 10,
+          observations: null,
+          status: 'aprovado',
+          hourly_rate: 160,
+          total_amount: 1600,
+          sync_status: 'synced',
+          created_at: '2026-01-15T14:00:00.000Z',
+        },
+      ]);
+
+      const allLogs = await fetchAdminWorkLogs('todos');
+      const { metrics: dailyMetrics, dailyServices } = calculateDashboardDailyMetrics(
+        allLogs,
+        todayISO
+      );
+
+      expect(dailyServices.length).toBe(1);
+      expect(dailyServices[0].client_name).toBe('Serviço de Hoje Aprovado');
+      expect(dailyMetrics.totalServices).toBe(1);
+      expect(dailyMetrics.totalHours).toBe(5);
+      expect(dailyMetrics.billedAmount).toBe(800);
+      expect(dailyMetrics.pendingAmount).toBe(0);
     });
   });
 

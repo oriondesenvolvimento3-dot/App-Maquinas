@@ -1,7 +1,12 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { db } from '../lib/dexieDb';
 import { toast, isValidUuid } from './syncService';
-import { formatTimeHHMM, calculateTotalHours, applyPhoneMask } from '../utils/formatters';
+import {
+  formatTimeHHMM,
+  calculateTotalHours,
+  applyPhoneMask,
+  formatDateISO,
+} from '../utils/formatters';
 import type {
   Machine,
   Client,
@@ -254,18 +259,69 @@ export function calculateWorkLogBilling(
 }
 
 /**
- * 1. Calcula as métricas consolidadas do painel administrativo
- * Totalmente baseado em dados reais do Supabase (ou Dexie se offline).
- * Se não houver registros, todos os indicadores retornam 0.
+ * Retorna a data local atual do dispositivo no formato YYYY-MM-DD (sem deslocamento UTC).
  */
-export async function fetchAdminMetrics(): Promise<AdminMetrics> {
-  const logs = await fetchAdminWorkLogs('todos');
+export function getTodayLocalDateISO(now: Date = new Date()): string {
+  return formatDateISO(now);
+}
+
+/**
+ * Extrai a data local YYYY-MM-DD de um apontamento de serviço sem sofrer deslocamento UTC-3.
+ */
+export function getServiceLocalDateISO(service: {
+  service_date?: string | null;
+  date?: string | null;
+  created_at?: string | null;
+}): string {
+  const rawDate = service.service_date || service.date;
+  if (rawDate) {
+    const trimmed = String(rawDate).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      return trimmed;
+    }
+    if (/^\d{4}-\d{2}-\d{2}T/.test(trimmed)) {
+      const parsed = new Date(trimmed);
+      if (!isNaN(parsed.getTime())) {
+        return formatDateISO(parsed);
+      }
+      return trimmed.slice(0, 10);
+    }
+  }
+
+  if (service.created_at) {
+    const trimmedCreated = String(service.created_at).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmedCreated)) {
+      return trimmedCreated;
+    }
+    const parsed = new Date(trimmedCreated);
+    if (!isNaN(parsed.getTime())) {
+      return formatDateISO(parsed);
+    }
+    return trimmedCreated.slice(0, 10);
+  }
+
+  return '';
+}
+
+/**
+ * Filtra serviços e calcula as métricas estritamente para uma data alvo (ou para todos quando targetDateISO não é informado).
+ */
+export function calculateDashboardDailyMetrics(
+  logs: ExtendedWorkLog[],
+  targetDateISO?: string
+): {
+  metrics: AdminMetrics;
+  dailyServices: ExtendedWorkLog[];
+} {
+  const scopedLogs = targetDateISO
+    ? logs.filter((log) => getServiceLocalDateISO(log) === targetDateISO)
+    : logs;
 
   let totalHours = 0;
   let billedAmount = 0;
   let pendingAmount = 0;
 
-  for (const log of logs) {
+  for (const log of scopedLogs) {
     const norm = normalizeWorkLogStatus(log.status);
     if (norm === 'rejeitado' || norm === 'em_andamento') {
       continue;
@@ -278,7 +334,7 @@ export async function fetchAdminMetrics(): Promise<AdminMetrics> {
       log.billing_unit
     );
     const rate = Number(log.hourly_rate) || 0;
-    const amount = Number((hours * rate).toFixed(2));
+    const amount = hours > 0 && rate > 0 ? Number((hours * rate).toFixed(2)) : 0;
 
     totalHours += hours;
 
@@ -290,11 +346,24 @@ export async function fetchAdminMetrics(): Promise<AdminMetrics> {
   }
 
   return {
-    totalServices: logs.length,
-    totalHours: Number(totalHours.toFixed(1)),
-    billedAmount,
-    pendingAmount,
+    metrics: {
+      totalServices: scopedLogs.length,
+      totalHours: Number(totalHours.toFixed(1)),
+      billedAmount,
+      pendingAmount,
+    },
+    dailyServices: scopedLogs,
   };
+}
+
+/**
+ * 1. Calcula as métricas consolidadas do painel administrativo
+ * Totalmente baseado em dados reais do Supabase (ou Dexie se offline).
+ * Quando `targetDateISO` é informado (ex: data local de hoje YYYY-MM-DD), calcula estritamente para o dia.
+ */
+export async function fetchAdminMetrics(targetDateISO?: string): Promise<AdminMetrics> {
+  const logs = await fetchAdminWorkLogs('todos');
+  return calculateDashboardDailyMetrics(logs, targetDateISO).metrics;
 }
 
 /**

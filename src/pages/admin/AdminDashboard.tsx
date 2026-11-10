@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  fetchAdminMetrics,
   fetchAdminWorkLogs,
-  type AdminMetrics,
+  calculateDashboardDailyMetrics,
+  getTodayLocalDateISO,
   type ExtendedWorkLog,
 } from '../../services/adminService';
 import { SYNC_COMPLETE_EVENT } from '../../services/syncService';
@@ -37,26 +37,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onNavigateToAgenda,
 }) => {
 
-  const [metrics, setMetrics] = useState<AdminMetrics>({
-    totalServices: 0,
-    totalHours: 0,
-    billedAmount: 0,
-    pendingAmount: 0,
-  });
-
   const [allServices, setAllServices] = useState<ExtendedWorkLog[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const loadDashboardData = useCallback(() => {
     setIsLoading(true);
-    Promise.all([
-      fetchAdminMetrics().then(setMetrics),
-      fetchAdminWorkLogs('todos').then((logs) => {
+    fetchAdminWorkLogs('todos')
+      .then((logs) => {
         setAllServices(logs);
-      }),
-    ]).finally(() => {
-      setIsLoading(false);
-    });
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
   }, []);
 
   useEffect(() => {
@@ -68,24 +60,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     };
   }, [loadDashboardData]);
 
-  // Identifica serviços aguardando aprovação
+  const todayISO = getTodayLocalDateISO();
+
+  const { metrics, dailyServices } = useMemo(
+    () => calculateDashboardDailyMetrics(allServices, todayISO),
+    [allServices, todayISO]
+  );
+
+  // Identifica serviços aguardando aprovação (na fila geral e no dia de hoje)
   const pendingServices = allServices.filter(
     (s) => s.status === 'pendente' || (s.status as any) === 'pending'
   );
+  const todayPendingServices = dailyServices.filter(
+    (s) => s.status === 'pendente' || (s.status as any) === 'pending'
+  );
 
-  // Ordena lista de serviços recentes priorizando pendentes no topo
-  const recentServices = [...allServices]
-    .sort((a, b) => {
-      const aPending = a.status === 'pendente' || (a.status as any) === 'pending';
-      const bPending = b.status === 'pendente' || (b.status as any) === 'pending';
-      if (aPending && !bPending) return -1;
-      if (!aPending && bPending) return 1;
+  // Ordena lista de serviços de hoje priorizando pendentes no topo
+  const todayServices = [...dailyServices].sort((a, b) => {
+    const aPending = a.status === 'pendente' || (a.status as any) === 'pending';
+    const bPending = b.status === 'pendente' || (b.status as any) === 'pending';
+    if (aPending && !bPending) return -1;
+    if (!aPending && bPending) return 1;
 
-      const dateA = new Date(a.created_at || a.service_date).getTime();
-      const dateB = new Date(b.created_at || b.service_date).getTime();
-      return dateB - dateA;
-    })
-    .slice(0, 6);
+    const dateA = new Date(a.created_at || a.service_date).getTime();
+    const dateB = new Date(b.created_at || b.service_date).getTime();
+    return dateB - dateA;
+  });
 
   const getStatusBadge = (status: 'pendente' | 'aprovado' | 'rejeitado' | 'em_andamento' | string) => {
     const s = String(status || '').toLowerCase().trim();
@@ -167,10 +167,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* 2. CORPO DO DASHBOARD */}
       <main className="flex-1 px-6 py-5 space-y-6">
         
-        {/* Grid 2x2 com métricas do protótipo */}
+        {/* Grid 2x2 com métricas diárias (apenas serviços de hoje) */}
         <div className="grid grid-cols-2 gap-3.5">
           
-          {/* Card 1: Total de serviços */}
+          {/* Card 1: Total de serviços de hoje */}
           <div className="bg-white border border-[#E2E8F0] rounded-2xl p-4 shadow-sm flex flex-col justify-between h-28">
             <div className="flex items-center text-[#0F172A]">
               <div className="p-1.5 bg-[#F8FAFC] rounded-lg border border-[#E2E8F0]">
@@ -178,12 +178,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
             <div>
-              <p className="text-xs font-medium text-[#64748B]">Total de serviços</p>
+              <p className="text-xs font-medium text-[#64748B]">Serviços hoje</p>
               <p className="text-2xl font-bold text-[#0F172A]">{metrics.totalServices}</p>
             </div>
           </div>
 
-          {/* Card 2: Horas trabalhadas */}
+          {/* Card 2: Horas trabalhadas hoje */}
           <div className="bg-white border border-[#E2E8F0] rounded-2xl p-4 shadow-sm flex flex-col justify-between h-28">
             <div className="flex items-center text-[#0F172A]">
               <div className="p-1.5 bg-[#F8FAFC] rounded-lg border border-[#E2E8F0]">
@@ -191,12 +191,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
             <div>
-              <p className="text-xs font-medium text-[#64748B]">Horas trabalhadas</p>
+              <p className="text-xs font-medium text-[#64748B]">Horas hoje</p>
               <p className="text-2xl font-bold text-[#0F172A]">{metrics.totalHours}h</p>
             </div>
           </div>
 
-          {/* Card 3: Valor faturado */}
+          {/* Card 3: Valor faturado hoje */}
           <div className="bg-white border border-[#E2E8F0] rounded-2xl p-4 shadow-sm flex flex-col justify-between h-28">
             <div className="flex items-center text-[#0F172A]">
               <div className="p-1.5 bg-[#F8FAFC] rounded-lg border border-[#E2E8F0]">
@@ -204,14 +204,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
             <div>
-              <p className="text-xs font-medium text-[#64748B]">Valor faturado</p>
+              <p className="text-xs font-medium text-[#64748B]">Faturado hoje</p>
               <p className="text-base font-bold text-[#0F172A] truncate">
                 {formatCurrencyBRL(metrics.billedAmount)}
               </p>
             </div>
           </div>
 
-          {/* Card 4: Pendentes */}
+          {/* Card 4: Pendentes hoje */}
           <div
             onClick={onNavigateToServices}
             className="bg-white border border-[#E2E8F0] hover:border-[#F59E0B] rounded-2xl p-4 shadow-sm flex flex-col justify-between h-28 cursor-pointer transition-all group"
@@ -221,14 +221,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div className="p-1.5 bg-[#F8FAFC] group-hover:bg-[#FEF3C7] rounded-lg border border-[#E2E8F0] group-hover:border-[#FDE68A] transition-colors">
                 <RotateCcw className="w-4 h-4 text-[#0F172A] group-hover:text-[#B45309]" />
               </div>
-              {pendingServices.length > 0 && (
+              {todayPendingServices.length > 0 && (
                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-[#FEF3C7] text-[#B45309]">
-                  {pendingServices.length} pend.
+                  {todayPendingServices.length} pend.
                 </span>
               )}
             </div>
             <div>
-              <p className="text-xs font-medium text-[#64748B]">Pendentes</p>
+              <p className="text-xs font-medium text-[#64748B]">Pendentes hoje</p>
               <p className="text-base font-bold text-[#0F172A] truncate">
                 {formatCurrencyBRL(metrics.pendingAmount)}
               </p>
@@ -293,10 +293,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         )}
 
-        {/* Seção: Serviços Recentes */}
+        {/* Seção: Serviços de hoje */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold text-[#0F172A]">Serviços recentes</h2>
+            <h2 className="text-base font-bold text-[#0F172A]">Serviços de hoje</h2>
             <button
               id="btn-see-all-services"
               type="button"
@@ -311,16 +311,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <div className="space-y-2.5">
             {isLoading ? (
               <div className="py-8 text-center text-xs font-semibold text-[#64748B]">
-                Carregando serviços recentes...
+                Carregando serviços de hoje...
               </div>
-            ) : recentServices.length === 0 ? (
+            ) : todayServices.length === 0 ? (
               <div className="py-8 text-center bg-white border border-[#E2E8F0] rounded-2xl p-6 space-y-3">
                 <div>
                   <p className="text-sm font-bold text-[#0F172A]">
-                    Nenhum item cadastrado ainda
+                    Nenhum serviço registrado hoje
                   </p>
                   <p className="text-xs text-[#64748B] mt-1">
-                    Nenhum serviço registrado ainda. Os novos serviços aparecerão aqui.
+                    Os serviços realizados na data de hoje aparecerão aqui.
                   </p>
                 </div>
                 <button
@@ -332,7 +332,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </button>
               </div>
             ) : (
-              recentServices.map((service) => (
+              todayServices.map((service) => (
                 <div
                   key={service.id}
                   onClick={() => onNavigateToServiceDetail(service.id)}
