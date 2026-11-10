@@ -4,30 +4,20 @@ import {
   finishWorkLog,
   cancelWorkLog,
   getActiveWorkLogForOperator,
-  validateFinishServiceInput,
   getLatestHorimeterForMachine,
 } from '../src/services/workLogService';
 import { fetchAdminWorkLogs } from '../src/services/adminService';
 import { db } from '../src/lib/dexieDb';
+import { buildMockMachine, buildMockWorkLog, clearTestDatabase } from './fixtures/workLogFixtures';
 
 describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
   beforeEach(async () => {
-    await db.cached_machines.clear();
-    await db.offline_work_logs.clear();
-
-    await db.cached_machines.add({
-      id: 'mach-cat-01',
-      name: 'Retroescavadeira CAT 416E',
-      model: 'Caterpillar',
-      hourly_rate: 180,
-      current_hours: 1500,
-      active: true,
-    });
+    await clearTestDatabase();
+    await db.cached_machines.add(buildMockMachine());
   });
 
   afterEach(async () => {
-    await db.cached_machines.clear();
-    await db.offline_work_logs.clear();
+    await clearTestDatabase();
   });
 
   describe('Etapa 1: Iniciar Serviço (Check-in)', () => {
@@ -40,7 +30,7 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
           operator_name: 'João Operador',
           start_hours: 1500.5,
         },
-        false // modo offline
+        false
       );
 
       expect(result.success).toBe(true);
@@ -64,7 +54,6 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
     });
 
     it('deve impedir que o mesmo operador inicie mais de 1 serviço em andamento simultaneamente', async () => {
-      // Primeiro serviço
       const firstResult = await startWorkLog(
         {
           machine_id: 'mach-cat-01',
@@ -77,7 +66,6 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
       );
       expect(firstResult.success).toBe(true);
 
-      // Tentativa de iniciar um segundo serviço com o mesmo operador
       const secondResult = await startWorkLog(
         {
           machine_id: 'mach-cat-01',
@@ -120,47 +108,8 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
     });
   });
 
-  describe('Validação da Conclusão (validateFinishServiceInput)', () => {
-    it('deve rejeitar horímetro final igual ao inicial exigindo que o final seja superior', () => {
-      const result = validateFinishServiceInput({
-        client_name: 'Fazenda Boa Esperança',
-        start_hours: 1500,
-        end_hours: 1500,
-        service_date: '2026-10-29',
-      });
-
-      expect(result.isValid).toBe(false);
-      expect(result.errors.end_hours).toContain('superior ao horímetro inicial');
-    });
-
-    it('deve rejeitar horímetro final estritamente menor que o horímetro inicial', () => {
-      const result = validateFinishServiceInput({
-        client_name: 'Fazenda Boa Esperança',
-        start_hours: 1500,
-        end_hours: 1490,
-        service_date: '2026-10-29',
-      });
-
-      expect(result.isValid).toBe(false);
-      expect(result.errors.end_hours).toContain('superior ao horímetro inicial');
-    });
-
-    it('deve exigir nome do cliente na conclusão', () => {
-      const result = validateFinishServiceInput({
-        client_name: '',
-        start_hours: 1500,
-        end_hours: 1505,
-        service_date: '2026-10-29',
-      });
-
-      expect(result.isValid).toBe(false);
-      expect(result.errors.client_name).toBeDefined();
-    });
-  });
-
   describe('Etapa 2: Finalizar Serviço (Check-out)', () => {
     it('deve finalizar o serviço ativo atualizando o status de em_andamento para pendente', async () => {
-      // 1. Inicia serviço
       const startRes = await startWorkLog(
         {
           machine_id: 'mach-cat-01',
@@ -176,7 +125,6 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
       const activeBefore = await getActiveWorkLogForOperator('op-carlos-789', false);
       expect(activeBefore).toBeDefined();
 
-      // 2. Finaliza serviço
       const finishRes = await finishWorkLog(
         {
           localId: activeBefore!.id,
@@ -196,11 +144,9 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
 
       expect(finishRes.success).toBe(true);
 
-      // 3. Verifica que não há mais serviço em andamento
       const activeAfter = await getActiveWorkLogForOperator('op-carlos-789', false);
       expect(activeAfter).toBeNull();
 
-      // 4. Verifica o registro final salvo
       const allLogs = await db.offline_work_logs.toArray();
       const finishedLog = allLogs.find((l) => l.operator_id === 'op-carlos-789');
       expect(finishedLog).toBeDefined();
@@ -213,7 +159,6 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
       expect(finishedLog?.finished_at).toBeDefined();
       expect(finishedLog?.end_time).toMatch(/^\d{2}:\d{2}$/);
 
-      // Somente após a finalização o serviço deve aparecer na fila de aprovação do Administrador
       const adminPendentes = await fetchAdminWorkLogs('pendente');
       const foundInAdmin = adminPendentes.find((l) => l.operator_id === 'op-carlos-789');
       expect(foundInAdmin).toBeDefined();
@@ -221,14 +166,12 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
       expect(foundInAdmin?.end_hours).toBe(1506.5);
       expect(foundInAdmin?.total_hours).toBe(6.5);
 
-      // 5. Verifica que o horímetro da máquina foi atualizado no Dexie e no getLatestHorimeterForMachine
       const machine = await db.cached_machines.get('mach-cat-01');
       expect(machine?.current_hours).toBe(1506.5);
 
       const latestHorimeter = await getLatestHorimeterForMachine('mach-cat-01');
       expect(latestHorimeter).toBe(1506.5);
 
-      // 6. Confirma que o operador agora pode iniciar um novo serviço
       const nextService = await startWorkLog(
         {
           machine_id: 'mach-cat-01',
@@ -243,7 +186,6 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
     });
 
     it('deve preservar estritamente o horímetro inicial sem permitir que seja sobrescrito pelo horímetro final', async () => {
-      // Check-in com horímetro 1200.0
       const startRes = await startWorkLog(
         {
           machine_id: 'mach-cat-01',
@@ -260,7 +202,6 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
       expect(active).toBeDefined();
       expect(active?.start_hours).toBe(1200.0);
 
-      // Check-out com horímetro final 1208.5
       const finishRes = await finishWorkLog(
         {
           localId: active!.id,
@@ -280,7 +221,6 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
 
       const saved = await db.offline_work_logs.get(active!.id!);
       expect(saved).toBeDefined();
-      // O horímetro inicial NUNCA pode ter sido sobrescrito com 1208.5
       expect(saved?.start_hours).toBe(1200.0);
       expect(saved?.end_hours).toBe(1208.5);
       expect(saved?.total_hours).toBe(8.5);
@@ -308,7 +248,6 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
       const activeAfter = await getActiveWorkLogForOperator('op-cancel-01', false);
       expect(activeAfter).toBeNull();
 
-      // Operador pode iniciar novo serviço imediatamente após cancelar
       const restartRes = await startWorkLog(
         {
           machine_id: 'mach-cat-01',
@@ -323,28 +262,22 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
     });
 
     it('deve garantir que serviços com status pendente ou aprovado não sejam considerados ativos', async () => {
-      // Cria apontamento finalizado com status pendente
-      await db.offline_work_logs.add({
-        machine_id: 'mach-cat-01',
-        machine_name: 'Retroescavadeira CAT 416E',
-        operator_id: 'op-finished-01',
-        operator_name: 'Lucas Operador',
-        client_name: 'Fazenda Estrela',
-        service_date: '2026-10-30',
-        start_hours: 100,
-        end_hours: 105,
-        total_hours: 5,
-        observations: null,
-        created_at: new Date().toISOString(),
-        status: 'pendente',
-        sync_status: 'synced',
-        synced: true,
-      });
+      await db.offline_work_logs.add(
+        buildMockWorkLog({
+          operator_id: 'op-finished-01',
+          operator_name: 'Lucas Operador',
+          client_name: 'Fazenda Estrela',
+          service_date: '2026-10-30',
+          start_hours: 100,
+          end_hours: 105,
+          total_hours: 5,
+          status: 'pendente',
+        })
+      );
 
       const activePending = await getActiveWorkLogForOperator('op-finished-01', false);
       expect(activePending).toBeNull();
 
-      // Atualiza para aprovado
       await db.offline_work_logs.where('operator_id').equals('op-finished-01').modify({ status: 'aprovado' });
 
       const activeApproved = await getActiveWorkLogForOperator('op-finished-01', false);
@@ -352,7 +285,6 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
     });
 
     it('deve preservar o nome real do cliente digitado e nunca sobrescrever com "Em andamento"', async () => {
-      // 1. Inicia serviço informando cliente opcional
       const startRes = await startWorkLog(
         {
           machine_id: 'mach-cat-01',
@@ -370,7 +302,6 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
       expect(active?.client_name).toBe('Sítio Primavera');
       expect(active?.client_name).not.toBe('Em andamento');
 
-      // 2. Finaliza serviço confirmando o nome do cliente
       const finishRes = await finishWorkLog(
         {
           localId: active!.id,

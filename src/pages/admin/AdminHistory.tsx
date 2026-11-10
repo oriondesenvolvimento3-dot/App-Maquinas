@@ -25,6 +25,8 @@ import {
   CheckCircle2,
   Users,
   X,
+  SlidersHorizontal,
+  ChevronDown,
 } from 'lucide-react';
 
 interface AdminHistoryProps {
@@ -96,6 +98,7 @@ export function calculateFinancialSummary(
     startDate?: string;
     endDate?: string;
     selectedClient?: string;
+    selectedOperator?: string;
     selectedPaymentStatus?: 'todos' | PaymentStatus;
   } = {}
 ): FinancialSummaryResult {
@@ -103,6 +106,7 @@ export function calculateFinancialSummary(
     startDate = '',
     endDate = '',
     selectedClient = 'todos',
+    selectedOperator = 'all',
     selectedPaymentStatus = 'todos',
   } = filters;
 
@@ -118,6 +122,13 @@ export function calculateFinancialSummary(
 
       if (selectedClient !== 'todos') {
         if (service.client_name.toLowerCase() !== selectedClient.toLowerCase()) {
+          return false;
+        }
+      }
+
+      if (selectedOperator && selectedOperator !== 'all' && selectedOperator !== 'todos') {
+        const opName = (service.operator_name || (service as any).operator || '').trim();
+        if (opName !== selectedOperator) {
           return false;
         }
       }
@@ -224,6 +235,8 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
     }
   });
 
+  const [selectedOperator, setSelectedOperator] = useState<string>('all');
+
   const [selectedPaymentStatus, setSelectedPaymentStatus] = useState<'todos' | PaymentStatus>(() => {
     try {
       return (sessionStorage.getItem(STORAGE_KEY_PAYMENT) as 'todos' | PaymentStatus) || 'todos';
@@ -235,6 +248,15 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
   const [pdfSuccessMessage, setPdfSuccessMessage] = useState<string | null>(null);
   const [paymentToastMessage, setPaymentToastMessage] = useState<string | null>(null);
   const [isPdfMenuOpen, setIsPdfMenuOpen] = useState<boolean>(false);
+  const [isFilterModalOpen, setIsFilterModalOpen] = useState<boolean>(false);
+
+  const handleClearFilters = () => {
+    setStartDate('');
+    setEndDate('');
+    setSelectedClient('todos');
+    setSelectedOperator('all');
+    setSelectedPaymentStatus('todos');
+  };
 
   // Persistência contínua na sessão para preservar filtros ao navegar entre telas
   useEffect(() => {
@@ -311,6 +333,16 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
     return Array.from(set).sort();
   }, [allServices]);
 
+  // Lista de operadores únicos para o seletor
+  const uniqueOperators = useMemo(() => {
+    const ops = new Set<string>();
+    allServices.forEach((s) => {
+      const name = s.operator_name || (s as any).operator;
+      if (name && name.trim()) ops.add(name.trim());
+    });
+    return Array.from(ops).sort();
+  }, [allServices]);
+
   // Filtragem dos serviços e consolidação de métricas dos cards superiores via calculateFinancialSummary
   const financialSummary = useMemo(
     () =>
@@ -318,9 +350,10 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
         startDate,
         endDate,
         selectedClient,
+        selectedOperator,
         selectedPaymentStatus,
       }),
-    [allServices, startDate, endDate, selectedClient, selectedPaymentStatus]
+    [allServices, startDate, endDate, selectedClient, selectedOperator, selectedPaymentStatus]
   );
 
   const filteredServices = financialSummary.filteredServices;
@@ -428,138 +461,16 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
           Histórico e relatórios de prestação de serviços
         </p>
 
-        {/* 2. BARRA DE FILTROS: PERÍODO E CLIENTE */}
-        <div className="mt-3.5 space-y-2.5">
-          {/* Barra de Atalhos Rápidos de Período (Pills / Botões) */}
-          <div>
-            <span className="block text-[10px] font-bold text-[#64748B] uppercase tracking-wider mb-1.5">
-              Atalhos de Período:
-            </span>
-            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] pb-0.5 -mx-1 px-1">
-              <button
-                type="button"
-                id="preset-btn-ultimos-30"
-                onClick={() => handleSelectPreset('ultimos_30')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 border ${
-                  activePreset === 'ultimos_30'
-                    ? 'bg-[#0F172A] text-[#FBBF24] border-[#0F172A] shadow-xs'
-                    : 'bg-[#F8FAFC] text-[#475569] border-[#E2E8F0] hover:bg-[#F1F5F9] hover:text-[#0F172A]'
-                }`}
-              >
-                Últimos 30 Dias
-              </button>
-              <button
-                type="button"
-                id="preset-btn-este-mes"
-                onClick={() => handleSelectPreset('este_mes')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 border ${
-                  activePreset === 'este_mes'
-                    ? 'bg-[#0F172A] text-[#FBBF24] border-[#0F172A] shadow-xs'
-                    : 'bg-[#F8FAFC] text-[#475569] border-[#E2E8F0] hover:bg-[#F1F5F9] hover:text-[#0F172A]'
-                }`}
-              >
-                Este Mês
-              </button>
-              <button
-                type="button"
-                id="preset-btn-mes-anterior"
-                onClick={() => handleSelectPreset('mes_anterior')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 border ${
-                  activePreset === 'mes_anterior'
-                    ? 'bg-[#0F172A] text-[#FBBF24] border-[#0F172A] shadow-xs'
-                    : 'bg-[#F8FAFC] text-[#475569] border-[#E2E8F0] hover:bg-[#F1F5F9] hover:text-[#0F172A]'
-                }`}
-              >
-                Mês Anterior
-              </button>
-              <button
-                type="button"
-                id="preset-btn-tudo"
-                onClick={() => handleSelectPreset('tudo')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 border ${
-                  activePreset === 'tudo'
-                    ? 'bg-[#0F172A] text-[#FBBF24] border-[#0F172A] shadow-xs'
-                    : 'bg-[#F8FAFC] text-[#475569] border-[#E2E8F0] hover:bg-[#F1F5F9] hover:text-[#0F172A]'
-                }`}
-              >
-                Tudo
-              </button>
-            </div>
-          </div>
-
-          {/* Datas Início e Fim */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="min-w-0">
-              <label htmlFor="input-start-date" className="text-[10px] font-bold text-[#64748B] block mb-1 uppercase tracking-wider">
-                De:
-              </label>
-              <input
-                id="input-start-date"
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="w-full h-9.5 px-2.5 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-xs font-semibold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
-              />
-            </div>
-            <div className="min-w-0">
-              <label htmlFor="input-end-date" className="text-[10px] font-bold text-[#64748B] block mb-1 uppercase tracking-wider">
-                Até:
-              </label>
-              <input
-                id="input-end-date"
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="w-full h-9.5 px-2.5 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-xs font-semibold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
-              />
-            </div>
-          </div>
-
-          {/* Seletor de Cliente e Status de Pagamento (Lado a Lado) */}
-          <div className="grid grid-cols-2 gap-2.5">
-            <div className="relative min-w-0">
-              <div className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-[#64748B]">
-                <Users className="w-3.5 h-3.5" />
-              </div>
-              <select
-                id="select-client"
-                aria-label="Filtrar por Cliente"
-                value={selectedClient}
-                onChange={(e) => setSelectedClient(e.target.value)}
-                className="w-full h-9 pl-7 pr-6 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-[11px] sm:text-xs font-bold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] appearance-none cursor-pointer truncate"
-              >
-                <option value="todos">Todos os Clientes</option>
-                {uniqueClients.map((client) => (
-                  <option key={client} value={client}>
-                    {client}
-                  </option>
-                ))}
-              </select>
-              <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-[#64748B] text-[9px]">
-                ▼
-              </div>
-            </div>
-
-            <div className="relative min-w-0">
-              <div className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-[#64748B]">
-                <BadgeDollarSign className="w-3.5 h-3.5" />
-              </div>
-              <select
-                id="select-payment-status"
-                aria-label="Status de Pagamento"
-                value={selectedPaymentStatus}
-                onChange={(e) => setSelectedPaymentStatus(e.target.value as 'todos' | PaymentStatus)}
-                className="w-full h-9 pl-7 pr-6 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-[11px] sm:text-xs font-bold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] appearance-none cursor-pointer truncate"
-              >
-                <option value="todos">Todos os Pagamentos</option>
-                <option value="a_receber">A receber</option>
-                <option value="pago">Pago</option>
-              </select>
-              <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-[#64748B] text-[9px]">
-                ▼
-              </div>
-            </div>
-          </div>
+        {/* 2. BARRA DE FILTROS COMPACTA */}
+        <div className="flex items-center justify-between my-4">
+          <button
+            type="button"
+            onClick={() => setIsFilterModalOpen(true)}
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200 rounded-full shadow-sm text-slate-700 font-medium text-sm hover:bg-slate-50 active:scale-95 transition-all"
+          >
+            <SlidersHorizontal className="w-4 h-4 text-slate-600" />
+            <span>Filtros</span>
+          </button>
         </div>
       </header>
 
@@ -669,6 +580,11 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
                     <p className="text-xs text-[#64748B] font-medium truncate">
                       {service.machine_name} • {service.total_hours}h • {formatDateBr(service.service_date)}
                     </p>
+                    {(service.operator_name || (service as any).operator) && (
+                      <span className="text-xs font-medium text-slate-500 block leading-tight mt-1">
+                        Op: {service.operator_name || (service as any).operator}
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -733,7 +649,221 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
         </button>
       </div>
 
-      {/* 5. MODAL BOTTOM SHEET: SELEÇÃO DE FORMATO DO RELATÓRIO PDF */}
+      {/* 5. MODAL BOTTOM SHEET: FILTROS DO FINANCEIRO */}
+      {isFilterModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Filtros do Financeiro"
+          className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in backdrop-blur-xs"
+          onClick={() => setIsFilterModalOpen(false)}
+        >
+          <div
+            role="document"
+            className="w-full max-w-md bg-white rounded-t-3xl sm:rounded-2xl p-5 shadow-2xl space-y-4 border border-[#E2E8F0] pb-[calc(env(safe-area-inset-bottom,0px)+1.5rem)] sm:pb-5 animate-slide-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header do Modal */}
+            <div className="flex items-center justify-between pb-3 border-b border-[#F1F5F9]">
+              <h3 className="text-base font-extrabold text-[#0F172A]">
+                Filtros
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsFilterModalOpen(false)}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-[#64748B] hover:bg-[#F1F5F9] cursor-pointer"
+                aria-label="Fechar filtros"
+              >
+                <X className="w-4 h-4 stroke-[2.5]" />
+              </button>
+            </div>
+
+            {/* Bloco 1: Atalhos de Período */}
+            <div>
+              <span className="block text-[10px] font-bold text-[#64748B] uppercase tracking-wider mb-1.5">
+                Atalhos de Período:
+              </span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  id="preset-btn-ultimos-30"
+                  onClick={() => handleSelectPreset('ultimos_30')}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                    activePreset === 'ultimos_30'
+                      ? 'bg-[#0F172A] text-[#FBBF24] border-[#0F172A] shadow-xs'
+                      : 'bg-[#F8FAFC] text-[#475569] border-[#E2E8F0] hover:bg-[#F1F5F9] hover:text-[#0F172A]'
+                  }`}
+                >
+                  Últimos 30 Dias
+                </button>
+                <button
+                  type="button"
+                  id="preset-btn-este-mes"
+                  onClick={() => handleSelectPreset('este_mes')}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                    activePreset === 'este_mes'
+                      ? 'bg-[#0F172A] text-[#FBBF24] border-[#0F172A] shadow-xs'
+                      : 'bg-[#F8FAFC] text-[#475569] border-[#E2E8F0] hover:bg-[#F1F5F9] hover:text-[#0F172A]'
+                  }`}
+                >
+                  Este Mês
+                </button>
+                <button
+                  type="button"
+                  id="preset-btn-mes-anterior"
+                  onClick={() => handleSelectPreset('mes_anterior')}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                    activePreset === 'mes_anterior'
+                      ? 'bg-[#0F172A] text-[#FBBF24] border-[#0F172A] shadow-xs'
+                      : 'bg-[#F8FAFC] text-[#475569] border-[#E2E8F0] hover:bg-[#F1F5F9] hover:text-[#0F172A]'
+                  }`}
+                >
+                  Mês Anterior
+                </button>
+                <button
+                  type="button"
+                  id="preset-btn-tudo"
+                  onClick={() => handleSelectPreset('tudo')}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                    activePreset === 'tudo'
+                      ? 'bg-[#0F172A] text-[#FBBF24] border-[#0F172A] shadow-xs'
+                      : 'bg-[#F8FAFC] text-[#475569] border-[#E2E8F0] hover:bg-[#F1F5F9] hover:text-[#0F172A]'
+                  }`}
+                >
+                  Tudo
+                </button>
+              </div>
+            </div>
+
+            {/* Bloco 2: Período Personalizado (De / Até) */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="min-w-0">
+                <label htmlFor="input-start-date" className="text-[10px] font-bold text-[#64748B] block mb-1 uppercase tracking-wider">
+                  De:
+                </label>
+                <input
+                  id="input-start-date"
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full h-10 px-2.5 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-xs font-semibold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
+                />
+              </div>
+              <div className="min-w-0">
+                <label htmlFor="input-end-date" className="text-[10px] font-bold text-[#64748B] block mb-1 uppercase tracking-wider">
+                  Até:
+                </label>
+                <input
+                  id="input-end-date"
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="w-full h-10 px-2.5 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-xs font-semibold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
+                />
+              </div>
+            </div>
+
+            {/* Bloco 3: Seletor de Cliente */}
+            <div>
+              <label htmlFor="select-client" className="text-[10px] font-bold text-[#64748B] block mb-1 uppercase tracking-wider">
+                Cliente:
+              </label>
+              <div className="relative min-w-0">
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none text-[#64748B]">
+                  <Users className="w-4 h-4" />
+                </div>
+                <select
+                  id="select-client"
+                  aria-label="Filtrar por Cliente"
+                  value={selectedClient}
+                  onChange={(e) => setSelectedClient(e.target.value)}
+                  className="w-full h-10 pl-9 pr-8 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-xs font-bold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] appearance-none cursor-pointer truncate"
+                >
+                  <option value="todos">Todos os Clientes</option>
+                  {uniqueClients.map((client) => (
+                    <option key={client} value={client}>
+                      {client}
+                    </option>
+                  ))}
+                </select>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[#64748B] text-[10px]">
+                  ▼
+                </div>
+              </div>
+            </div>
+
+            {/* Bloco 3.5: Seletor de Operador */}
+            <div>
+              <label htmlFor="select-operator" className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                Operador:
+              </label>
+              <div className="relative">
+                <select
+                  id="select-operator"
+                  aria-label="Filtrar por Operador"
+                  value={selectedOperator}
+                  onChange={(e) => setSelectedOperator(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 font-medium appearance-none focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-transparent transition-all"
+                >
+                  <option value="all">Todos os Operadores</option>
+                  {uniqueOperators.map((op) => (
+                    <option key={op} value={op}>{op}</option>
+                  ))}
+                </select>
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
+                  <ChevronDown className="w-4 h-4" />
+                </div>
+              </div>
+            </div>
+
+            {/* Bloco 4: Seletor de Status de Pagamento */}
+            <div>
+              <label htmlFor="select-payment-status" className="text-[10px] font-bold text-[#64748B] block mb-1 uppercase tracking-wider">
+                Status de Pagamento:
+              </label>
+              <div className="relative min-w-0">
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none text-[#64748B]">
+                  <BadgeDollarSign className="w-4 h-4" />
+                </div>
+                <select
+                  id="select-payment-status"
+                  aria-label="Status de Pagamento"
+                  value={selectedPaymentStatus}
+                  onChange={(e) => setSelectedPaymentStatus(e.target.value as 'todos' | PaymentStatus)}
+                  className="w-full h-10 pl-9 pr-8 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-xs font-bold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24] appearance-none cursor-pointer truncate"
+                >
+                  <option value="todos">Todos</option>
+                  <option value="pago">Pago</option>
+                  <option value="a_receber">A receber</option>
+                </select>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[#64748B] text-[10px]">
+                  ▼
+                </div>
+              </div>
+            </div>
+
+            {/* Footer: Limpar e Aplicar Filtros */}
+            <div className="pt-2 flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={handleClearFilters}
+                className="flex-1 h-11 bg-[#F8FAFC] hover:bg-[#F1F5F9] active:scale-[0.98] text-[#475569] font-bold text-xs rounded-xl border border-[#CBD5E1] transition-all cursor-pointer"
+              >
+                Limpar
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsFilterModalOpen(false)}
+                className="flex-[2] h-11 bg-[#0F172A] hover:bg-[#1E293B] active:scale-[0.98] text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer"
+              >
+                Aplicar Filtros
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6. MODAL BOTTOM SHEET: SELEÇÃO DE FORMATO DO RELATÓRIO PDF */}
       {isPdfMenuOpen && (
         <div
           role="dialog"
