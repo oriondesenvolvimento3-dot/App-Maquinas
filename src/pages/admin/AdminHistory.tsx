@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   fetchAdminWorkLogs,
   updateWorkLogPaymentStatus,
+  calculateWorkLogBilling,
   type ExtendedWorkLog,
 } from '../../services/adminService';
 import type { PaymentStatus } from '../../types/database';
@@ -74,6 +75,118 @@ export const getDatePresetRange = (preset: DatePreset): { startDate: string; end
     }
   }
 };
+
+export interface FinancialSummaryResult {
+  filteredServices: ExtendedWorkLog[];
+  totalHours: number;
+  totalBilled: number;
+  totalPaid: number;
+  totalReceivable: number;
+}
+
+/**
+ * Filtra os serviços financeiros válidos (excluindo rejeitados e em andamento),
+ * recalcula cada registro pela fórmula unificada imutável e consolida os totais
+ * dos cards superiores estritamente por .reduce() sobre a lista filtrada.
+ */
+export function calculateFinancialSummary(
+  services: ExtendedWorkLog[],
+  filters: {
+    startDate?: string;
+    endDate?: string;
+    selectedClient?: string;
+    selectedPaymentStatus?: 'todos' | PaymentStatus;
+  } = {}
+): FinancialSummaryResult {
+  const {
+    startDate = '',
+    endDate = '',
+    selectedClient = 'todos',
+    selectedPaymentStatus = 'todos',
+  } = filters;
+
+  const filteredServices = services
+    .filter((service) => {
+      if (
+        service.status === 'rejeitado' ||
+        (service.status as any) === 'rejected' ||
+        service.status === 'em_andamento' ||
+        (service.status as any) === 'in_progress'
+      ) {
+        return false;
+      }
+
+      if (startDate && service.service_date < startDate) return false;
+      if (endDate && service.service_date > endDate) return false;
+
+      if (selectedClient !== 'todos') {
+        if (service.client_name.toLowerCase() !== selectedClient.toLowerCase()) {
+          return false;
+        }
+      }
+
+      if (selectedPaymentStatus !== 'todos') {
+        const rawStatus = service.payment_status || 'a_receber';
+        const normalizedPayment: PaymentStatus =
+          rawStatus === 'pago' || (rawStatus as any) === 'paid'
+            ? 'pago'
+            : 'a_receber';
+        if (normalizedPayment !== selectedPaymentStatus) {
+          return false;
+        }
+      }
+
+      return true;
+    })
+    .map((service) => {
+      const { totalHours, totalAmount } = calculateWorkLogBilling(service);
+      return {
+        ...service,
+        total_hours: totalHours,
+        total_amount: totalAmount,
+      };
+    });
+
+  const totalHours = Number(
+    filteredServices
+      .reduce((acc, s) => acc + (Number(s.total_hours) || 0), 0)
+      .toFixed(1)
+  );
+
+  const totalBilled = Number(
+    filteredServices
+      .reduce((acc, s) => acc + (Number(s.total_amount) || 0), 0)
+      .toFixed(2)
+  );
+
+  const totalPaid = Number(
+    filteredServices
+      .filter(
+        (s) =>
+          s.payment_status === 'pago' || (s.payment_status as any) === 'paid'
+      )
+      .reduce((acc, s) => acc + (Number(s.total_amount) || 0), 0)
+      .toFixed(2)
+  );
+
+  const totalReceivable = Number(
+    filteredServices
+      .filter(
+        (s) =>
+          s.payment_status !== 'pago' && (s.payment_status as any) !== 'paid'
+      )
+      .reduce((acc, s) => acc + (Number(s.total_amount) || 0), 0)
+      .toFixed(2)
+  );
+
+  return {
+    filteredServices,
+    totalHours,
+    totalBilled,
+    totalPaid,
+    totalReceivable,
+  };
+}
 
 export const AdminHistory: React.FC<AdminHistoryProps> = ({
   onNavigateToDashboard,
@@ -207,78 +320,23 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
     return Array.from(set).sort();
   }, [allServices]);
 
-  // Filtragem dos serviços por período, cliente e status de pagamento
-  const filteredServices = useMemo(() => {
-    return allServices.filter((service) => {
-      // Garantir que serviços rejeitados ou em andamento nunca componham o faturamento
-      if (
-        service.status === 'rejeitado' ||
-        (service.status as any) === 'rejected' ||
-        service.status === 'em_andamento' ||
-        (service.status as any) === 'in_progress'
-      ) {
-        return false;
-      }
+  // Filtragem dos serviços e consolidação de métricas dos cards superiores via calculateFinancialSummary
+  const financialSummary = useMemo(
+    () =>
+      calculateFinancialSummary(allServices, {
+        startDate,
+        endDate,
+        selectedClient,
+        selectedPaymentStatus,
+      }),
+    [allServices, startDate, endDate, selectedClient, selectedPaymentStatus]
+  );
 
-      // Filtro de data
-      if (startDate && service.service_date < startDate) return false;
-      if (endDate && service.service_date > endDate) return false;
-
-      // Filtro de cliente
-      if (selectedClient !== 'todos') {
-        if (service.client_name.toLowerCase() !== selectedClient.toLowerCase()) {
-          return false;
-        }
-      }
-
-      // Filtro de status de pagamento
-      if (selectedPaymentStatus !== 'todos') {
-        const itemPaymentStatus: PaymentStatus = service.payment_status || 'a_receber';
-        if (itemPaymentStatus !== selectedPaymentStatus) {
-          return false;
-        }
-      }
-
-      return true;
-    });
-  }, [allServices, startDate, endDate, selectedClient, selectedPaymentStatus]);
-
-  // Consolidação de métricas filtradas dinamicamente (soma exata dos itens filtrados exibidos)
-  const totalFilteredHours = useMemo(() => {
-    const sum = filteredServices.reduce(
-      (acc, item) => acc + (Number(item.total_hours) || 0),
-      0
-    );
-    return Number(sum.toFixed(1));
-  }, [filteredServices]);
-
-  const totalFilteredAmount = useMemo(() => {
-    const sum = filteredServices.reduce(
-      (acc, item) => acc + (Number(item.total_amount) || 0),
-      0
-    );
-    return Number(sum.toFixed(2));
-  }, [filteredServices]);
-
-  const totalPaidAmount = useMemo(() => {
-    const sum = filteredServices
-      .filter(
-        (i) =>
-          i.payment_status === 'pago' || (i.payment_status as any) === 'paid'
-      )
-      .reduce((acc, item) => acc + (Number(item.total_amount) || 0), 0);
-    return Number(sum.toFixed(2));
-  }, [filteredServices]);
-
-  const totalReceivableAmount = useMemo(() => {
-    const sum = filteredServices
-      .filter(
-        (i) =>
-          i.payment_status !== 'pago' && (i.payment_status as any) !== 'paid'
-      )
-      .reduce((acc, item) => acc + (Number(item.total_amount) || 0), 0);
-    return Number(sum.toFixed(2));
-  }, [filteredServices]);
+  const filteredServices = financialSummary.filteredServices;
+  const totalFilteredHours = financialSummary.totalHours;
+  const totalFilteredAmount = financialSummary.totalBilled;
+  const totalPaidAmount = financialSummary.totalPaid;
+  const totalReceivableAmount = financialSummary.totalReceivable;
 
   const handleTogglePaymentStatus = async (
     e: React.MouseEvent,

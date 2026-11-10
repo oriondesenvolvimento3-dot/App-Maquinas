@@ -62,6 +62,7 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
   const [machineNameInput, setMachineNameInput] = useState<string>('');
   const [startHoursInput, setStartHoursInput] = useState<string>('0');
   const [endHoursInput, setEndHoursInput] = useState<string>('0');
+  const [manualHoursInput, setManualHoursInput] = useState<string | null>(null);
   const [hourlyRateInput, setHourlyRateInput] = useState<string>('0');
   const [observationsInput, setObservationsInput] = useState<string>('');
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('a_receber');
@@ -117,11 +118,29 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
   const numEnd = parseFloat(String(endHoursInput).replace(',', '.')) || 0;
   const numericRate =
     parseFloat(String(hourlyRateInput).replace(/[^\d.,-]/g, '').replace(',', '.')) || 0;
-  const calculatedHours = calculateTotalHours(numStart, numEnd);
-  const calculatedTotal = Number((calculatedHours * numericRate).toFixed(2));
+  const deltaHours = numEnd > numStart ? calculateTotalHours(numStart, numEnd) : 0;
+  const parsedManualHours =
+    manualHoursInput !== null
+      ? parseFloat(String(manualHoursInput).replace(',', '.')) || 0
+      : null;
+  const calculatedHours =
+    parsedManualHours !== null && parsedManualHours > 0
+      ? Number(parsedManualHours.toFixed(1))
+      : deltaHours;
+  const calculatedTotal =
+    calculatedHours > 0 && numericRate > 0
+      ? Number((calculatedHours * numericRate).toFixed(2))
+      : 0;
 
   const selectedMachine = machines.find((m) => m.id === machineIdInput);
   const isKm = (selectedMachine?.billing_unit === 'km') || (service?.billing_unit === 'km');
+  const machineHistoricalHours = Number(
+    selectedMachine?.current_hours ??
+      (selectedMachine as any)?.current_horimeter ??
+      0
+  );
+  const hasZeroStartAnomalyWarning =
+    numStart === 0 && (machineHistoricalHours > 50 || numEnd > 50);
 
   const handleMachineSelect = (newMachineId: string) => {
     setMachineIdInput(newMachineId);
@@ -176,10 +195,10 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
       setFeedback({ type: 'error', message: 'Informe o nome do cliente.' });
       return false;
     }
-    if (numEnd < numStart) {
+    if (numEnd <= numStart) {
       setFeedback({
         type: 'error',
-        message: 'O horímetro final deve ser maior ou igual ao horímetro inicial.',
+        message: 'O horímetro final deve ser superior ao horímetro inicial.',
       });
       return false;
     }
@@ -198,6 +217,7 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
       machine_name: machineNameInput,
       start_hours: numStart,
       end_hours: numEnd,
+      total_hours: calculatedHours,
       hourly_rate: numericRate,
       total_amount: calculatedTotal,
       billing_unit: isKm ? 'km' : 'hour',
@@ -243,10 +263,10 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
       setFeedback({ type: 'error', message: 'Informe o nome do cliente antes de aprovar.' });
       return;
     }
-    if (numEnd < numStart) {
+    if (numEnd <= numStart) {
       setFeedback({
         type: 'error',
-        message: 'O horímetro final deve ser maior ou igual ao horímetro inicial.',
+        message: 'O horímetro final deve ser superior ao horímetro inicial.',
       });
       return;
     }
@@ -265,6 +285,7 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
       machine_name: machineNameInput,
       start_hours: numStart,
       end_hours: numEnd,
+      total_hours: calculatedHours,
       hourly_rate: numericRate,
       total_amount: calculatedTotal,
       billing_unit: isKm ? 'km' : 'hour',
@@ -846,7 +867,10 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
                 type="number"
                 step={isKm ? '1' : '0.1'}
                 value={startHoursInput}
-                onChange={(e) => setStartHoursInput(e.target.value)}
+                onChange={(e) => {
+                  setStartHoursInput(e.target.value);
+                  setManualHoursInput(null);
+                }}
                 className="w-full h-11 px-3 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-sm font-bold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
               />
             </div>
@@ -861,13 +885,39 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
                 type="number"
                 step={isKm ? '1' : '0.1'}
                 value={endHoursInput}
-                onChange={(e) => setEndHoursInput(e.target.value)}
+                onChange={(e) => {
+                  setEndHoursInput(e.target.value);
+                  setManualHoursInput(null);
+                }}
                 className="w-full h-11 px-3 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-sm font-bold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
               />
             </div>
           </div>
 
-          {/* Item 7: Horas trabalhadas ou Distância percorrida (Recalculadas automaticamente) */}
+          {hasZeroStartAnomalyWarning && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 space-y-2 animate-fade-in">
+              <div className="flex items-start gap-2 font-semibold">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  Atenção: O horímetro inicial consta como 0h em uma máquina com histórico acumulado. Confira o horímetro inicial ou ajuste as horas faturáveis.
+                </span>
+              </div>
+              {machineHistoricalHours > 50 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStartHoursInput(String(machineHistoricalHours));
+                    setManualHoursInput(null);
+                  }}
+                  className="px-2.5 py-1 bg-amber-200/80 hover:bg-amber-300 text-amber-950 font-bold rounded-lg text-[11px] transition-colors cursor-pointer"
+                >
+                  Preencher inicial com último horímetro ({machineHistoricalHours}h)
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Item 7: Horas trabalhadas ou Distância percorrida (Recalculadas automaticamente ou editáveis) */}
           <div className="flex items-center justify-between p-3 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl">
             <div className="flex items-center gap-2">
               <Fuel className="w-4 h-4 text-[#0F172A]" />
@@ -875,9 +925,20 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
                 {isKm ? 'Distância percorrida' : 'Horas trabalhadas'}
               </span>
             </div>
-            <span className="text-sm font-extrabold text-[#0F172A]">
-              {calculatedHours}{isKm ? ' km' : 'h'}
-            </span>
+            <div className="flex items-center gap-1.5">
+              <input
+                id="admin-edit-total-hours"
+                type="number"
+                step={isKm ? '1' : '0.1'}
+                min="0"
+                value={manualHoursInput !== null ? manualHoursInput : String(calculatedHours)}
+                onChange={(e) => setManualHoursInput(e.target.value)}
+                className="w-20 h-8 px-2 text-right bg-white border border-[#CBD5E1] rounded-lg text-sm font-extrabold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#FBBF24]"
+              />
+              <span className="text-xs font-bold text-[#64748B]">
+                {isKm ? 'km' : 'h'}
+              </span>
+            </div>
           </div>
 
           {/* Item 8: Valor por hora / KM (Editável para o Administrador) */}

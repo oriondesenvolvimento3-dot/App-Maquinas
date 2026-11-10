@@ -115,6 +115,7 @@ export interface AdminWorkLogUpdatePayload {
   machine_name?: string;
   start_hours: number;
   end_hours: number;
+  total_hours?: number;
   hourly_rate: number;
   total_amount?: number;
   billing_unit?: BillingUnit;
@@ -178,42 +179,78 @@ export function normalizeWorkLogStatus(status?: string | null): WorkLogStatus {
 }
 
 /**
- * Calcula com segurança o delta real de horas/km trabalhados (end_hours - start_hours),
- * bloqueando cálculos acidentais que multipliquem o horímetro final acumulado (ex: 1000h)
- * quando o horímetro inicial foi registrado como 0.
+ * Calcula com segurança o delta real de horas/km trabalhados sem teto máximo de horas
+ * (suportando apontamentos consolidados de 80h, 85.5h ou mais).
+ * Fórmula unificada:
+ * - horas = (end_hours - start_hours) > 0 ? (end_hours - start_hours) : (service.total_hours || 0)
+ * - Se ambos os horímetros forem informados e end_hours <= start_hours, trava em 0h.
+ * - Se start_hours === 0 e end_hours corresponder ao horímetro acumulado da máquina (> 50h) sem total_hours explícito,
+ *   bloqueia o cálculo indevido sobre o acumulado total.
  */
 export function resolveSafeWorkLogHours(
   startH: number,
   endH: number,
   rawHours: number = 0,
-  billingUnit: BillingUnit = 'hour'
+  _billingUnit: BillingUnit = 'hour',
+  machineCurrentHours: number = 0
 ): number {
   const s = Number(startH) || 0;
   const e = Number(endH) || 0;
   const r = Number(rawHours) || 0;
 
-  if (s > 0) {
-    if (e >= s) {
-      return calculateTotalHours(s, e);
+  if (s > 0 || e > 0) {
+    const delta = Number((e - s).toFixed(1));
+    if (delta <= 0) {
+      return 0;
     }
-    return 0;
-  }
 
-  // Quando start_hours === 0 e end_hours > 0:
-  if (e > 0) {
-    // Bloqueia horímetro acumulado da máquina tratado como delta (ex: 0 -> 1000h)
-    if (billingUnit !== 'km' && e > 24) {
-      return r > 0 && r <= 24 ? Number(r.toFixed(1)) : 0;
+    // Detecção de horímetro acumulado indevido (ex: 0 -> 1000h)
+    if (s === 0 && e > 50) {
+      // Se o administrador/operador preencheu manualmente o delta de horas faturáveis (menor que o acumulado), respeita o delta
+      if (r > 0 && r < e) {
+        return Number(r.toFixed(1));
+      }
+      // Se total_hours for 0 e a máquina já tinha histórico (> 50h) ou horímetro acumulado elevado (>= 500h), trava em 0
+      if (r <= 0 && (machineCurrentHours > 50 || e >= 500)) {
+        return 0;
+      }
     }
-    return calculateTotalHours(0, e);
+
+    return delta;
   }
 
-  // Quando start_hours === 0 e end_hours === 0:
-  if (r > 0 && (billingUnit === 'km' || r <= 24)) {
-    return Number(r.toFixed(1));
-  }
+  return r > 0 ? Number(r.toFixed(1)) : 0;
+}
 
-  return 0;
+/**
+ * Fórmula unificada e imutável de faturamento para serviços:
+ * - horas = (end_hours - start_hours) > 0 ? (end_hours - start_hours) : (service.total_hours || 0)
+ * - total_amount = Number((horas * (service.hourly_rate || rate)).toFixed(2))
+ * - Trava de segurança: se horas <= 0 ou rate <= 0, total_amount é forçado a 0.
+ */
+export function calculateWorkLogBilling(
+  service: {
+    start_hours?: number;
+    end_hours?: number;
+    total_hours?: number;
+    hourly_rate?: number;
+    billing_unit?: BillingUnit;
+  },
+  fallbackRate: number = 0,
+  machineCurrentHours: number = 0
+): { totalHours: number; totalAmount: number } {
+  const totalHours = resolveSafeWorkLogHours(
+    Number(service.start_hours ?? 0),
+    Number(service.end_hours ?? 0),
+    Number(service.total_hours ?? 0),
+    service.billing_unit || 'hour',
+    machineCurrentHours
+  );
+  const rate = Number(service.hourly_rate || fallbackRate) || 0;
+  const totalAmount =
+    totalHours > 0 && rate > 0 ? Number((totalHours * rate).toFixed(2)) : 0;
+
+  return { totalHours, totalAmount };
 }
 
 /**
@@ -441,13 +478,23 @@ export async function fetchAdminWorkLogs(
               localMatch?.km_final ??
               0
             );
+            const machineCurrentH = Number(
+              machine?.current_hours ??
+              (machine as any)?.current_horimeter ??
+              (machine as any)?.horimeter ??
+              0
+            );
             const totalHours = resolveSafeWorkLogHours(
               startH,
               endH,
               rawHours,
-              resolvedUnit
+              resolvedUnit,
+              machineCurrentH
             );
-            const totalAmount = Number((totalHours * rate).toFixed(2));
+            const totalAmount =
+              totalHours > 0 && rate > 0
+                ? Number((totalHours * rate).toFixed(2))
+                : 0;
 
             // Sanitização automática de registros legados com total_amount inflado (ex: R$ 210.000,00)
             if (
@@ -598,13 +645,23 @@ export async function fetchAdminWorkLogs(
         0
       );
       const rawHours = Number(log.total_hours ?? 0);
+      const machineCurrentH = Number(
+        machine?.current_hours ??
+        (machine as any)?.current_horimeter ??
+        (machine as any)?.horimeter ??
+        0
+      );
       const totalHours = resolveSafeWorkLogHours(
         startH,
         endH,
         rawHours,
-        resolvedUnit
+        resolvedUnit,
+        machineCurrentH
       );
-      const totalAmount = Number((totalHours * rate).toFixed(2));
+      const totalAmount =
+        totalHours > 0 && rate > 0
+          ? Number((totalHours * rate).toFixed(2))
+          : 0;
       const startedAt = log.started_at || log.created_at;
       const finishedAt =
         log.finished_at || (status !== 'em_andamento' ? log.created_at : undefined);
@@ -688,10 +745,10 @@ export async function updateAdminWorkLog(
     if (isNaN(updates.start_hours) || updates.start_hours < 0) {
       return { success: false, error: 'Horímetro inicial inválido.' };
     }
-    if (isNaN(updates.end_hours) || updates.end_hours < updates.start_hours) {
+    if (isNaN(updates.end_hours) || updates.end_hours <= updates.start_hours) {
       return {
         success: false,
-        error: 'O horímetro final deve ser maior ou igual ao inicial.',
+        error: 'O horímetro final deve ser superior ao horímetro inicial.',
       };
     }
 
@@ -699,9 +756,14 @@ export async function updateAdminWorkLog(
     const online =
       typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
 
-    const totalHours = calculateTotalHours(updates.start_hours, updates.end_hours);
+    const deltaHours = calculateTotalHours(updates.start_hours, updates.end_hours);
+    const totalHours =
+      updates.total_hours !== undefined && Number(updates.total_hours) > 0
+        ? Number(Number(updates.total_hours).toFixed(1))
+        : deltaHours;
     const rate = Number(updates.hourly_rate) || 0;
-    const totalAmount = Number((totalHours * rate).toFixed(2));
+    const totalAmount =
+      totalHours > 0 && rate > 0 ? Number((totalHours * rate).toFixed(2)) : 0;
     const cleanPhone = updates.client_phone?.trim() || null;
     const cleanObs = updates.observations?.trim() || null;
 

@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNetworkStatus } from '../../hooks/useNetworkStatus';
 import {
   finishWorkLog,
+  getLatestHorimeterForMachine,
   type WorkLogFormData,
   type FinishServiceFormData,
 } from '../../services/workLogService';
@@ -55,7 +56,7 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
 
   // Cálculo reativo das horas trabalhadas ou distância em KM
   const isKm = activeLog.billing_unit === 'km';
-  const numStart = Number(
+  const rawInitial = Number(
     activeLog.start_hours ??
     (activeLog as any).initial_horimeter ??
     (activeLog as any).horimeter_initial ??
@@ -64,10 +65,29 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
     (activeLog as any).initial_hour ??
     0
   );
+  const [resolvedStartHours, setResolvedStartHours] = useState<number>(rawInitial);
+  const [zeroStartWarning, setZeroStartWarning] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (rawInitial === 0 && activeLog.machine_id) {
+      getLatestHorimeterForMachine(activeLog.machine_id)
+        .then((latest) => {
+          if (latest > 50) {
+            setResolvedStartHours(latest);
+            setZeroStartWarning(
+              `Horímetro inicial 0h ajustado automaticamente para o último horímetro conhecido da máquina (${latest.toFixed(1)}h).`
+            );
+          }
+        })
+        .catch(() => {});
+    }
+  }, [rawInitial, activeLog.machine_id]);
+
+  const numStart = resolvedStartHours;
   const numEnd = parseFloat(endHours.replace(',', '.')) || 0;
-  const calculatedHours = calculateTotalHours(numStart, numEnd);
-  const calculatedKm = numEnd >= numStart ? Number((numEnd - numStart).toFixed(1)) : 0;
-  const isHorometerInvalid = endHours !== '' && numEnd < numStart;
+  const calculatedHours = numEnd > numStart ? calculateTotalHours(numStart, numEnd) : 0;
+  const calculatedKm = numEnd > numStart ? Number((numEnd - numStart).toFixed(1)) : 0;
+  const isHorometerInvalid = endHours !== '' && numEnd <= numStart;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,10 +100,10 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
 
     if (!endHours || isNaN(numEnd)) {
       errors.end_hours = isKm ? 'Informe a quilometragem final.' : 'Informe o horímetro final.';
-    } else if (numEnd < numStart) {
+    } else if (numEnd <= numStart) {
       errors.end_hours = isKm
-        ? `O KM final (${numEnd} km) deve ser maior ou igual ao inicial (${numStart} km).`
-        : `O horímetro final (${numEnd}h) deve ser maior ou igual ao inicial (${numStart}h).`;
+        ? `O KM final (${numEnd} km) deve ser superior ao inicial (${numStart} km).`
+        : `O horímetro final (${numEnd}h) deve ser superior ao inicial (${numStart}h).`;
     }
 
     if (!serviceDate) {
@@ -180,6 +200,15 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
             <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
             <div className="text-xs leading-relaxed font-semibold">
               {generalError}
+            </div>
+          </div>
+        )}
+
+        {zeroStartWarning && (
+          <div className="p-3.5 bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl flex items-start gap-2.5 animate-fade-in shadow-2xs">
+            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <div className="text-xs leading-relaxed font-semibold">
+              {zeroStartWarning}
             </div>
           </div>
         )}
@@ -287,8 +316,8 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
             ) : isHorometerInvalid ? (
               <p className="text-xs font-medium text-rose-600 animate-fade-in">
                 {isKm
-                  ? `O KM final deve ser maior ou igual ao inicial (${numStart} km).`
-                  : `O horímetro final deve ser maior ou igual ao inicial (${numStart}h).`}
+                  ? `O KM final deve ser superior ao inicial (${numStart} km).`
+                  : `O horímetro final deve ser superior ao inicial (${numStart}h).`}
               </p>
             ) : null}
           </div>

@@ -4,9 +4,22 @@ import {
   buildWhatsAppServiceSummary,
 } from '../src/utils/whatsappShare';
 import { generateSingleServiceReceiptPdf } from '../src/utils/pdfGenerator';
-import { fetchAdminWorkLogs } from '../src/services/adminService';
+import {
+  fetchAdminWorkLogs,
+  updateAdminWorkLog,
+  calculateWorkLogBilling,
+} from '../src/services/adminService';
+import {
+  finishWorkLog,
+  submitWorkLog,
+  validateFinishServiceInput,
+  validateWorkLogInput,
+} from '../src/services/workLogService';
 import { db } from '../src/lib/dexieDb';
-import { getDatePresetRange } from '../src/pages/admin/AdminHistory';
+import {
+  getDatePresetRange,
+  calculateFinancialSummary,
+} from '../src/pages/admin/AdminHistory';
 import { formatDateISO } from '../src/utils/formatters';
 
 describe('Relatórios Financeiros e Compartilhamento', () => {
@@ -267,6 +280,275 @@ describe('Relatórios Financeiros e Compartilhamento', () => {
       const tudo = getDatePresetRange('tudo');
       expect(tudo.startDate).toBe('');
       expect(tudo.endDate).toBe('');
+    });
+  });
+
+  describe('Blindagem Financeira e Regressão de Horímetro', () => {
+    it('1. deve suportar serviços longos e consolidados (ex: 85.5h) sem teto máximo, calculando o faturamento exato (85.5 * tarifa)', async () => {
+      await db.offline_work_logs.clear();
+      const rate = 180;
+      const expectedTotal = Number((85.5 * rate).toFixed(2)); // 15390.00
+
+      await db.offline_work_logs.add({
+        machine_id: 'mach-310l-02',
+        machine_name: '310L 02',
+        operator_id: 'op-mauro',
+        operator_name: 'Mauro',
+        client_name: 'Obra Consolidada Loteamento',
+        service_date: '2026-11-05',
+        start_hours: 1200.0,
+        end_hours: 1285.5,
+        total_hours: 85.5,
+        hourly_rate: rate,
+        total_amount: expectedTotal,
+        observations: 'Serviços consolidados da quinzena',
+        status: 'aprovado',
+        payment_status: 'a_receber',
+        sync_status: 'synced',
+        created_at: new Date().toISOString(),
+      });
+
+      const logs = await fetchAdminWorkLogs('todos');
+      expect(logs.length).toBe(1);
+      expect(logs[0].total_hours).toBe(85.5);
+      expect(logs[0].total_amount).toBe(15390);
+
+      const summary = calculateFinancialSummary(logs);
+      expect(summary.totalHours).toBe(85.5);
+      expect(summary.totalBilled).toBe(15390);
+      expect(summary.totalReceivable).toBe(15390);
+      expect(summary.totalPaid).toBe(0);
+    });
+
+    it('2. deve bloquear horímetro final menor ou igual ao inicial (end_hours <= start_hours) e forçar total_amount = 0 se delta <= 0', async () => {
+      // Validação no formulário de conclusão
+      const finishValidationLess = validateFinishServiceInput({
+        client_name: 'Cliente Teste',
+        start_hours: 500,
+        end_hours: 495,
+        service_date: '2026-11-05',
+      });
+      expect(finishValidationLess.isValid).toBe(false);
+
+      // Validação no formulário geral
+      const workLogValidationLess = validateWorkLogInput({
+        machine_id: 'mach-01',
+        client_name: 'Cliente Teste',
+        start_hours: 500,
+        end_hours: 490,
+        service_date: '2026-11-05',
+      });
+      expect(workLogValidationLess.isValid).toBe(false);
+
+      // Bloqueio em finishWorkLog
+      const finishRes = await finishWorkLog(
+        {
+          machine_id: 'mach-01',
+          machine_name: '310L',
+          operator_id: 'op-01',
+          operator_name: 'Paulo',
+          client_name: 'Cliente Teste',
+          service_date: '2026-11-05',
+          start_hours: 500,
+          end_hours: 495,
+        },
+        false
+      );
+      expect(finishRes.success).toBe(false);
+
+      // Bloqueio em submitWorkLog
+      const submitRes = await submitWorkLog(
+        {
+          machine_id: 'mach-01',
+          machine_name: '310L',
+          operator_id: 'op-01',
+          operator_name: 'Paulo',
+          client_name: 'Cliente Teste',
+          service_date: '2026-11-05',
+          start_hours: 500,
+          end_hours: 495,
+          observations: null,
+        },
+        false
+      );
+      expect(submitRes.success).toBe(false);
+
+      // Bloqueio em updateAdminWorkLog
+      const updateRes = await updateAdminWorkLog(1, {
+        client_name: 'Cliente Teste',
+        service_date: '2026-11-05',
+        machine_id: 'mach-01',
+        start_hours: 500,
+        end_hours: 495,
+        hourly_rate: 160,
+      });
+      expect(updateRes.success).toBe(false);
+
+      // Trava de segurança matemática na fórmula unificada
+      const billing = calculateWorkLogBilling({
+        start_hours: 500,
+        end_hours: 495,
+        total_hours: 0,
+        hourly_rate: 200,
+      });
+      expect(billing.totalHours).toBe(0);
+      expect(billing.totalAmount).toBe(0);
+    });
+
+    it('3. deve garantir que a soma dos cards do cabeçalho é matematicamente idêntica à soma dos cards listados no período', async () => {
+      await db.offline_work_logs.clear();
+      await db.offline_work_logs.bulkAdd([
+        {
+          machine_id: 'mach-1',
+          machine_name: '310L 01',
+          operator_id: 'op-1',
+          operator_name: 'Paulo',
+          client_name: 'Cliente Pago 1',
+          service_date: '2026-11-01',
+          start_hours: 100,
+          end_hours: 112.5,
+          total_hours: 12.5,
+          hourly_rate: 160,
+          total_amount: 2000,
+          observations: null,
+          status: 'aprovado',
+          payment_status: 'pago',
+          sync_status: 'synced',
+          created_at: new Date().toISOString(),
+        },
+        {
+          machine_id: 'mach-2',
+          machine_name: '310L 02',
+          operator_id: 'op-2',
+          operator_name: 'Mauro',
+          client_name: 'Cliente Pendente Consolidado',
+          service_date: '2026-11-03',
+          start_hours: 500,
+          end_hours: 585.5,
+          total_hours: 85.5,
+          hourly_rate: 200,
+          total_amount: 17100,
+          observations: null,
+          status: 'aprovado',
+          payment_status: 'a_receber',
+          sync_status: 'synced',
+          created_at: new Date().toISOString(),
+        },
+        {
+          machine_id: 'mach-1',
+          machine_name: '310L 01',
+          operator_id: 'op-1',
+          operator_name: 'Paulo',
+          client_name: 'Cliente Fora do Período',
+          service_date: '2026-09-10',
+          start_hours: 50,
+          end_hours: 60,
+          total_hours: 10,
+          hourly_rate: 160,
+          total_amount: 1600,
+          observations: null,
+          status: 'aprovado',
+          payment_status: 'a_receber',
+          sync_status: 'synced',
+          created_at: new Date().toISOString(),
+        },
+      ]);
+
+      const logs = await fetchAdminWorkLogs('todos');
+      const summary = calculateFinancialSummary(logs, {
+        startDate: '2026-11-01',
+        endDate: '2026-11-30',
+      });
+
+      expect(summary.filteredServices.length).toBe(2);
+
+      const listSumBilled = summary.filteredServices.reduce(
+        (acc, s) => acc + (Number(s.total_amount) || 0),
+        0
+      );
+      const listSumPaid = summary.filteredServices
+        .filter((s) => s.payment_status === 'pago' || (s.payment_status as any) === 'paid')
+        .reduce((acc, s) => acc + (Number(s.total_amount) || 0), 0);
+      const listSumReceivable = summary.filteredServices
+        .filter((s) => s.payment_status !== 'pago' && (s.payment_status as any) !== 'paid')
+        .reduce((acc, s) => acc + (Number(s.total_amount) || 0), 0);
+
+      expect(summary.totalBilled).toBe(listSumBilled);
+      expect(summary.totalPaid).toBe(listSumPaid);
+      expect(summary.totalReceivable).toBe(listSumReceivable);
+      expect(summary.totalBilled).toBe(19100);
+      expect(summary.totalPaid).toBe(2000);
+      expect(summary.totalReceivable).toBe(17100);
+    });
+
+    it('4. deve garantir que serviços rejeitados nunca entram nos totais do financeiro', async () => {
+      await db.offline_work_logs.clear();
+      await db.offline_work_logs.bulkAdd([
+        {
+          machine_id: 'mach-1',
+          machine_name: '310L 01',
+          operator_id: 'op-1',
+          operator_name: 'Paulo',
+          client_name: 'Serviço Válido',
+          service_date: '2026-11-05',
+          start_hours: 100,
+          end_hours: 110,
+          total_hours: 10,
+          hourly_rate: 160,
+          total_amount: 1600,
+          observations: null,
+          status: 'aprovado',
+          payment_status: 'a_receber',
+          sync_status: 'synced',
+          created_at: new Date().toISOString(),
+        },
+        {
+          machine_id: 'mach-1',
+          machine_name: '310L 01',
+          operator_id: 'op-1',
+          operator_name: 'Paulo',
+          client_name: 'Serviço Rejeitado PT',
+          service_date: '2026-11-05',
+          start_hours: 200,
+          end_hours: 250,
+          total_hours: 50,
+          hourly_rate: 200,
+          total_amount: 10000,
+          observations: 'Rejeitado',
+          status: 'rejeitado',
+          payment_status: 'a_receber',
+          sync_status: 'synced',
+          created_at: new Date().toISOString(),
+        },
+        {
+          machine_id: 'mach-1',
+          machine_name: '310L 01',
+          operator_id: 'op-1',
+          operator_name: 'Paulo',
+          client_name: 'Serviço Rejeitado EN',
+          service_date: '2026-11-05',
+          start_hours: 300,
+          end_hours: 340,
+          total_hours: 40,
+          hourly_rate: 200,
+          total_amount: 8000,
+          observations: 'Rejected',
+          status: 'rejected' as any,
+          payment_status: 'pago',
+          sync_status: 'synced',
+          created_at: new Date().toISOString(),
+        },
+      ]);
+
+      const logs = await fetchAdminWorkLogs('todos');
+      const summary = calculateFinancialSummary(logs);
+
+      expect(summary.filteredServices.length).toBe(1);
+      expect(summary.filteredServices[0].client_name).toBe('Serviço Válido');
+      expect(summary.totalHours).toBe(10);
+      expect(summary.totalBilled).toBe(1600);
+      expect(summary.totalReceivable).toBe(1600);
+      expect(summary.totalPaid).toBe(0);
     });
   });
 });

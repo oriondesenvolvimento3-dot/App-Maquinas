@@ -121,7 +121,7 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
   });
 
   describe('Validação da Conclusão (validateFinishServiceInput)', () => {
-    it('deve aceitar horímetro final igual ao inicial (zero horas trabalhadas)', () => {
+    it('deve rejeitar horímetro final igual ao inicial exigindo que o final seja superior', () => {
       const result = validateFinishServiceInput({
         client_name: 'Fazenda Boa Esperança',
         start_hours: 1500,
@@ -129,8 +129,8 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
         service_date: '2026-10-29',
       });
 
-      expect(result.isValid).toBe(true);
-      expect(result.errors.end_hours).toBeUndefined();
+      expect(result.isValid).toBe(false);
+      expect(result.errors.end_hours).toContain('superior ao horímetro inicial');
     });
 
     it('deve rejeitar horímetro final estritamente menor que o horímetro inicial', () => {
@@ -142,7 +142,7 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
       });
 
       expect(result.isValid).toBe(false);
-      expect(result.errors.end_hours).toContain('maior ou igual ao horímetro inicial');
+      expect(result.errors.end_hours).toContain('superior ao horímetro inicial');
     });
 
     it('deve exigir nome do cliente na conclusão', () => {

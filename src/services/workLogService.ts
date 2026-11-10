@@ -248,10 +248,10 @@ export function validateFinishServiceInput(data: Partial<FinishServiceFormData>)
     errors.client_name = 'Informe o nome do cliente ou da obra.';
   }
 
-  if (data.end_hours === undefined || isNaN(data.end_hours)) {
+  if (data.end_hours === undefined || isNaN(data.end_hours) || data.end_hours <= 0) {
     errors.end_hours = 'Horímetro final inválido.';
-  } else if (data.start_hours !== undefined && data.end_hours < data.start_hours) {
-    errors.end_hours = 'O horímetro final deve ser maior ou igual ao horímetro inicial.';
+  } else if (data.start_hours !== undefined && data.end_hours <= data.start_hours) {
+    errors.end_hours = 'O horímetro final deve ser superior ao horímetro inicial.';
   }
 
   if (!data.service_date) {
@@ -422,6 +422,17 @@ export async function startWorkLog(
   const targetClient = formData.client_name?.trim() || 'A definir';
   const targetPhone = formData.client_phone?.trim() || null;
 
+  // Se start_hours === 0 em máquina que já possui histórico de horímetro (> 50h), preenche automaticamente com o último horímetro conhecido
+  let resolvedStartHours = Number(formData.start_hours);
+  if (resolvedStartHours === 0 && formData.machine_id) {
+    try {
+      const latestHorimeter = await getLatestHorimeterForMachine(formData.machine_id);
+      if (latestHorimeter > 50) {
+        resolvedStartHours = latestHorimeter;
+      }
+    } catch {}
+  }
+
   // 1. Salva primeiro no banco local Dexie com synced: false
   let localId: number;
   try {
@@ -433,11 +444,11 @@ export async function startWorkLog(
       client_name: targetClient,
       client_phone: targetPhone,
       service_date: todayStr,
-      start_hours: formData.start_hours,
+      start_hours: resolvedStartHours,
       end_hours: 0,
       total_hours: 0,
       billing_unit: formData.billing_unit || 'hour',
-      km_initial: formData.km_initial ?? (formData.billing_unit === 'km' ? formData.start_hours : undefined),
+      km_initial: formData.km_initial ?? (formData.billing_unit === 'km' ? resolvedStartHours : undefined),
       km_final: undefined,
       total_km: 0,
       observations: null,
@@ -460,7 +471,7 @@ export async function startWorkLog(
         client_name: targetClient,
         client_phone: targetPhone,
         service_date: todayStr,
-        start_hours: formData.start_hours,
+        start_hours: resolvedStartHours,
         end_hours: 0,
         observations: null,
         status: 'em_andamento' as const,
@@ -506,8 +517,8 @@ export async function finishWorkLog(
   if (formData.end_hours === undefined || isNaN(formData.end_hours)) {
     return { success: false, error: 'Informe o horímetro final.' };
   }
-  if (formData.end_hours < formData.start_hours) {
-    return { success: false, error: 'O horímetro final deve ser maior ou igual ao horímetro inicial.' };
+  if (formData.end_hours <= formData.start_hours) {
+    return { success: false, error: 'O horímetro final deve ser superior ao horímetro inicial.' };
   }
 
   const total_hours = calculateTotalHours(formData.start_hours, formData.end_hours);
@@ -763,6 +774,19 @@ export async function submitWorkLog(
   formData: WorkLogFormData,
   isOnline?: boolean
 ): Promise<{ success: boolean; isOfflineSaved: boolean; localId?: number; serverId?: string; error?: string }> {
+  if (
+    formData.start_hours === undefined ||
+    formData.end_hours === undefined ||
+    isNaN(formData.start_hours) ||
+    isNaN(formData.end_hours) ||
+    formData.end_hours <= formData.start_hours
+  ) {
+    return {
+      success: false,
+      isOfflineSaved: false,
+      error: 'O horímetro final deve ser superior ao horímetro inicial.',
+    };
+  }
   const total_hours = calculateTotalHours(formData.start_hours, formData.end_hours);
   const now = new Date().toISOString();
   const phone = formData.client_phone?.trim() || null;
