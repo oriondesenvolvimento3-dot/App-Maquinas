@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  fetchAdminWorkLogs,
+  fetchFinancialWorkLogs,
+  normalizeWorkLogStatus,
   updateWorkLogPaymentStatus,
   calculateWorkLogBilling,
   type ExtendedWorkLog,
@@ -107,12 +108,8 @@ export function calculateFinancialSummary(
 
   const filteredServices = services
     .filter((service) => {
-      if (
-        service.status === 'rejeitado' ||
-        (service.status as any) === 'rejected' ||
-        service.status === 'em_andamento' ||
-        (service.status as any) === 'in_progress'
-      ) {
+      // Regra estrita: o Financeiro aceita EXCLUSIVAMENTE serviços com status 'aprovado' ('approved')
+      if (normalizeWorkLogStatus(service.status) !== 'aprovado') {
         return false;
       }
 
@@ -276,16 +273,10 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
 
   const loadHistory = useCallback(() => {
     setIsLoading(true);
-    fetchAdminWorkLogs('todos')
+    fetchFinancialWorkLogs()
       .then((logs) => {
         const validLogs = logs
-          .filter(
-            (s) =>
-              s.status !== 'rejeitado' &&
-              (s.status as any) !== 'rejected' &&
-              s.status !== 'em_andamento' &&
-              (s.status as any) !== 'in_progress'
-          )
+          .filter((s) => normalizeWorkLogStatus(s.status) === 'aprovado')
           .map((s) => {
             const safeHours = Number(s.total_hours) || 0;
             const safeRate = Number(s.hourly_rate) || 0;

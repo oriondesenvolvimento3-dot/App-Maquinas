@@ -6,6 +6,7 @@ import {
 import { generateSingleServiceReceiptPdf } from '../src/utils/pdfGenerator';
 import {
   fetchAdminWorkLogs,
+  fetchFinancialWorkLogs,
   updateAdminWorkLog,
   calculateWorkLogBilling,
 } from '../src/services/adminService';
@@ -548,6 +549,84 @@ describe('Relatórios Financeiros e Compartilhamento', () => {
       expect(summary.totalHours).toBe(10);
       expect(summary.totalBilled).toBe(1600);
       expect(summary.totalReceivable).toBe(1600);
+      expect(summary.totalPaid).toBe(0);
+    });
+
+    it('5. deve ignorar completamente serviços com status pendente (pending) no Financeiro (não aparecem na lista e não somam nos cards)', async () => {
+      await db.offline_work_logs.clear();
+      await db.offline_work_logs.bulkAdd([
+        {
+          machine_id: 'mach-1',
+          machine_name: '310L 01',
+          operator_id: 'op-1',
+          operator_name: 'Paulo',
+          client_name: 'Cliente Aprovado Oficial',
+          service_date: '2026-11-08',
+          start_hours: 100,
+          end_hours: 108,
+          total_hours: 8,
+          hourly_rate: 160,
+          total_amount: 1280,
+          observations: null,
+          status: 'aprovado',
+          payment_status: 'a_receber',
+          sync_status: 'synced',
+          created_at: new Date().toISOString(),
+        },
+        {
+          machine_id: 'mach-1',
+          machine_name: '310L 01',
+          operator_id: 'op-1',
+          operator_name: 'Paulo',
+          client_name: 'Cliente Pendente PT',
+          service_date: '2026-11-08',
+          start_hours: 200,
+          end_hours: 210,
+          total_hours: 10,
+          hourly_rate: 160,
+          total_amount: 1600,
+          observations: null,
+          status: 'pendente',
+          payment_status: 'a_receber',
+          sync_status: 'synced',
+          created_at: new Date().toISOString(),
+        },
+        {
+          machine_id: 'mach-2',
+          machine_name: '310L 02',
+          operator_id: 'op-2',
+          operator_name: 'Mauro',
+          client_name: 'Cliente Pendente EN',
+          service_date: '2026-11-08',
+          start_hours: 300,
+          end_hours: 315,
+          total_hours: 15,
+          hourly_rate: 200,
+          total_amount: 3000,
+          observations: null,
+          status: 'pending' as any,
+          payment_status: 'a_receber',
+          sync_status: 'synced',
+          created_at: new Date().toISOString(),
+        },
+      ]);
+
+      // 1. Consulta de origem exclusiva do Financeiro (fetchFinancialWorkLogs)
+      const financialLogs = await fetchFinancialWorkLogs();
+      expect(financialLogs.length).toBe(1);
+      expect(financialLogs[0].client_name).toBe('Cliente Aprovado Oficial');
+      expect(financialLogs[0].status).toBe('aprovado');
+
+      // 2. Consolidação (calculateFinancialSummary) mesmo se receber lista bruta com itens pendentes
+      const allLogs = await fetchAdminWorkLogs('todos');
+      expect(allLogs.length).toBe(3);
+
+      const summary = calculateFinancialSummary(allLogs);
+      expect(summary.filteredServices.length).toBe(1);
+      expect(summary.filteredServices[0].client_name).toBe('Cliente Aprovado Oficial');
+      expect(summary.totalHours).toBe(8);
+      expect(summary.totalBilled).toBe(1280);
+      expect(summary.totalReceivable).toBe(1280);
       expect(summary.totalPaid).toBe(0);
     });
   });

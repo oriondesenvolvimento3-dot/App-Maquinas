@@ -633,6 +633,14 @@ export async function fetchAdminWorkLogs(
             resultLogs = resultLogs.filter(
               (l) => normalizeWorkLogStatus(l.status) !== 'em_andamento'
             );
+          } else {
+            resultLogs = resultLogs.filter((l) => {
+              const norm = normalizeWorkLogStatus(l.status);
+              if (filterStatus === 'pendente') return norm === 'pendente';
+              if (filterStatus === 'aprovado') return norm === 'aprovado';
+              if (filterStatus === 'rejeitado') return norm === 'rejeitado';
+              return l.status === filterStatus;
+            });
           }
         }
       }
@@ -797,6 +805,17 @@ export async function fetchAdminWorkLogs(
   });
 
   return resultLogs;
+}
+
+/**
+ * 2.0.1. Busca exclusivamente os serviços APROVADOS ('aprovado' / 'approved') para o módulo Financeiro.
+ * Serviços pendentes, em andamento ou rejeitados nunca compõem o faturamento.
+ */
+export async function fetchFinancialWorkLogs(): Promise<ExtendedWorkLog[]> {
+  const approvedLogs = await fetchAdminWorkLogs('aprovado');
+  return approvedLogs.filter(
+    (log) => normalizeWorkLogStatus(log.status) === 'aprovado'
+  );
 }
 
 /**
