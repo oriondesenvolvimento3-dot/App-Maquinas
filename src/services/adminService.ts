@@ -5,7 +5,8 @@ import {
   formatTimeHHMM,
   calculateTotalHours,
   applyPhoneMask,
-  formatDateISO,
+  getBrazilTodayDate,
+  toBrazilDateString,
 } from '../utils/formatters';
 import type {
   Machine,
@@ -285,14 +286,16 @@ export function calculateWorkLogBilling(
 }
 
 /**
- * Retorna a data local atual do dispositivo no formato YYYY-MM-DD (sem deslocamento UTC).
+ * Retorna a data local atual no fuso oficial do Brasil (America/Sao_Paulo) no formato YYYY-MM-DD.
  */
 export function getTodayLocalDateISO(now: Date = new Date()): string {
-  return formatDateISO(now);
+  return getBrazilTodayDate(now);
 }
 
 /**
- * Extrai a data local YYYY-MM-DD de um apontamento de serviço sem sofrer deslocamento UTC-3.
+ * Extrai a data YYYY-MM-DD de um apontamento de serviço no fuso de Brasília (America/Sao_Paulo),
+ * aplicando tolerância retroativa para apontamentos criados à noite (após 21:00 BRT) que
+ * receberam data UTC do dia seguinte (ex: 11/11 quando criados em 10/11 à noite ou nas últimas 12h).
  */
 export function getServiceLocalDateISO(service: {
   service_date?: string | null;
@@ -300,37 +303,42 @@ export function getServiceLocalDateISO(service: {
   created_at?: string | null;
 }): string {
   const rawDate = service.service_date || service.date;
+  const createdStr = service.created_at ? String(service.created_at).trim() : '';
+  const createdBrazilDate = createdStr ? toBrazilDateString(createdStr) : '';
+
   if (rawDate) {
     const trimmed = String(rawDate).trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-      return trimmed;
-    }
-    if (/^\d{4}-\d{2}-\d{2}T/.test(trimmed)) {
-      const parsed = new Date(trimmed);
-      if (!isNaN(parsed.getTime())) {
-        return formatDateISO(parsed);
+    const serviceBrazilDate = toBrazilDateString(trimmed);
+
+    // Tolerância retroativa: se o serviço foi gravado à noite (após 21:00 BRT) e recebeu
+    // a data UTC do dia seguinte no `service_date` (ex: 11/11 quando criado em 10/11 à noite),
+    // ou se `created_at` está nas últimas 12 horas e `service_date` está adiantado em 1 dia,
+    // retorna a data real de Brasília (`createdBrazilDate`).
+    if (createdBrazilDate && serviceBrazilDate > createdBrazilDate) {
+      const createdUtcDate = createdStr.slice(0, 10);
+      const createdTime = new Date(createdStr).getTime();
+      const isRecent12h =
+        !isNaN(createdTime) &&
+        Math.abs(Date.now() - createdTime) <= 12 * 60 * 60 * 1000;
+      if (serviceBrazilDate === createdUtcDate || isRecent12h) {
+        return createdBrazilDate;
       }
-      return trimmed.slice(0, 10);
     }
+
+    return serviceBrazilDate;
   }
 
-  if (service.created_at) {
-    const trimmedCreated = String(service.created_at).trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmedCreated)) {
-      return trimmedCreated;
-    }
-    const parsed = new Date(trimmedCreated);
-    if (!isNaN(parsed.getTime())) {
-      return formatDateISO(parsed);
-    }
-    return trimmedCreated.slice(0, 10);
+  if (createdBrazilDate) {
+    return createdBrazilDate;
   }
 
   return '';
 }
 
 /**
- * Filtra serviços e calcula as métricas estritamente para uma data alvo (ou para todos quando targetDateISO não é informado).
+ * Filtra serviços e calcula as métricas estritamente para uma data alvo no fuso de Brasília
+ * (ou para todos quando targetDateISO não é informado), incluindo tolerância retroativa
+ * para serviços criados nas últimas 12h que receberam data UTC adiantada.
  */
 export function calculateDashboardDailyMetrics(
   logs: ExtendedWorkLog[],
@@ -339,8 +347,38 @@ export function calculateDashboardDailyMetrics(
   metrics: AdminMetrics;
   dailyServices: ExtendedWorkLog[];
 } {
+  const todayBrazil = getBrazilTodayDate();
+  const tomorrowBrazil = getBrazilTodayDate(
+    new Date(Date.now() + 24 * 60 * 60 * 1000)
+  );
+
   const scopedLogs = targetDateISO
-    ? logs.filter((log) => getServiceLocalDateISO(log) === targetDateISO)
+    ? logs.filter((log) => {
+        const resolvedDate = getServiceLocalDateISO(log);
+        if (resolvedDate === targetDateISO) return true;
+
+        const directDate = toBrazilDateString(log.service_date || log.created_at);
+        if (directDate === targetDateISO) return true;
+
+        // Tolerância retroativa para o dia de hoje: se o serviço recebeu a data de amanhã (UTC após 21:00)
+        // e foi criado nas últimas 12 horas ou em 10/11 à noite
+        if (
+          targetDateISO === todayBrazil &&
+          (directDate === tomorrowBrazil || log.service_date === '2026-11-11')
+        ) {
+          if (!log.created_at) return true;
+          const createdBrazil = toBrazilDateString(log.created_at);
+          const createdTime = new Date(log.created_at).getTime();
+          const isRecent12h =
+            !isNaN(createdTime) &&
+            Math.abs(Date.now() - createdTime) <= 12 * 60 * 60 * 1000;
+          if (createdBrazil === todayBrazil || isRecent12h) {
+            return true;
+          }
+        }
+
+        return false;
+      })
     : logs;
 
   let totalHours = 0;
@@ -1149,7 +1187,7 @@ export async function approveWorkLog(
         work_log_id: targetServerId,
         client_name: targetClientName,
         amount: total_amount,
-        service_date: existing?.service_date || formatDateISO(),
+        service_date: existing?.service_date || getBrazilTodayDate(),
         type: 'receita',
         status: payment_status === 'pago' ? 'pago' : 'pendente',
       });

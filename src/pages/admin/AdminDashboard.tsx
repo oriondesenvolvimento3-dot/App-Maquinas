@@ -2,11 +2,14 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   fetchAdminWorkLogs,
   calculateDashboardDailyMetrics,
-  getTodayLocalDateISO,
   type ExtendedWorkLog,
 } from '../../services/adminService';
 import { SYNC_COMPLETE_EVENT } from '../../services/syncService';
-import { formatCurrencyBRL, formatTimeHHMM } from '../../utils/formatters';
+import {
+  formatCurrencyBRL,
+  formatTimeHHMM,
+  getBrazilTodayDate,
+} from '../../utils/formatters';
 import { AdminBottomNav } from '../../components/AdminBottomNav';
 import {
   Calendar,
@@ -60,7 +63,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     };
   }, [loadDashboardData]);
 
-  const todayISO = getTodayLocalDateISO();
+  const todayISO = getBrazilTodayDate();
 
   const { metrics, dailyServices } = useMemo(
     () => calculateDashboardDailyMetrics(allServices, todayISO),

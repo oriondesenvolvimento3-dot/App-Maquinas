@@ -1,6 +1,6 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { formatDateBr, formatCurrencyBRL } from './formatters';
+import { formatDateBr, formatCurrencyBRL, getBrazilTodayDate } from './formatters';
 
 export interface ReportItem {
   date: string;
@@ -282,7 +282,7 @@ export function generateServiceReportPdf(
 
   // 6. DOWNLOAD AUTOMÁTICO DO ARQUIVO
   const safeClient = (reportData.clientName || 'Geral').replace(/[^a-zA-Z0-9]/g, '_');
-  const safeDate = (reportData.endDate || new Date().toISOString().split('T')[0]).replace(/[^a-zA-Z0-9]/g, '-');
+  const safeDate = (reportData.endDate || getBrazilTodayDate()).replace(/[^a-zA-Z0-9]/g, '-');
   const fileName = `Relatorio_RetroScave_${safeClient}_${safeDate}.pdf`;
 
   doc.save(fileName);
@@ -344,7 +344,7 @@ export function generateSingleServiceReceiptPdf(
   const phone = service.client_phone || service.clientPhone || null;
   const machine = (service.machine_name || service.machineName || (isKm ? 'Guincho' : 'Retroescavadeira')).trim();
   const operator = (service.operator_name || service.operatorName || 'Operador').trim();
-  const dateStr = service.service_date || service.serviceDate || new Date().toISOString().split('T')[0];
+  const dateStr = service.service_date || service.serviceDate || getBrazilTodayDate();
   const start = Number(service.start_hours ?? service.startHours ?? 0);
   const end = Number(service.end_hours ?? service.endHours ?? 0);
   const hours = Number(service.total_hours ?? service.totalHours ?? (end - start));

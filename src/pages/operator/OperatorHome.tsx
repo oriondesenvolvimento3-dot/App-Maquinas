@@ -7,7 +7,11 @@ import {
   getActiveWorkLogForOperator,
   cancelWorkLog,
 } from '../../services/workLogService';
-import { formatTimeHHMM } from '../../utils/formatters';
+import {
+  formatTimeHHMM,
+  getBrazilTodayDate,
+  toBrazilDateString,
+} from '../../utils/formatters';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import type { OfflineWorkLog } from '../../types/database';
 import {
@@ -81,7 +85,7 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
    */
   const loadDashboardMetrics = useCallback(async () => {
     try {
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = getBrazilTodayDate();
       const localLogs = await db.offline_work_logs.toArray();
       let logsForMetrics: Array<{
         service_date: string;
@@ -146,7 +150,7 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
 
       // Filtra apenas serviços finalizados do dia (não contar serviços em andamento como finalizados)
       const todayLogs = logsForMetrics.filter(
-        (log) => log.service_date === todayStr && log.status !== 'em_andamento'
+        (log) => toBrazilDateString(log.service_date) === todayStr && log.status !== 'em_andamento'
       );
       setServicesTodayCount(todayLogs.length);
 

@@ -19,13 +19,68 @@ export function formatDateBr(dateStr?: string | null): string {
 }
 
 /**
- * Converte um objeto Date para formato YYYY-MM-DD usando o fuso horário local (sem desvio UTC).
+ * Retorna a data atual estritamente no fuso de Brasília (YYYY-MM-DD)
  */
-export function formatDateISO(date: Date = new Date()): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+export function getBrazilTodayDate(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat('fr-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+}
+
+/**
+ * Retorna o timestamp ISO/formatado respeitando o offset local de Brasília
+ */
+export function getBrazilCurrentDateTime(now: Date = new Date()): string {
+  const formatter = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+  return formatter.format(now);
+}
+
+/**
+ * Converte qualquer Date ou timestamp para a string YYYY-MM-DD no fuso de Brasília
+ */
+export function toBrazilDateString(dateInput: string | Date | number): string {
+  if (!dateInput) return '';
+  if (typeof dateInput === 'string') {
+    const trimmed = dateInput.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      return trimmed;
+    }
+  }
+  const date =
+    typeof dateInput === 'string' && !dateInput.includes('T')
+      ? new Date(`${dateInput}T12:00:00`)
+      : new Date(dateInput);
+  if (isNaN(date.getTime())) {
+    return typeof dateInput === 'string' ? dateInput.slice(0, 10) : '';
+  }
+  return new Intl.DateTimeFormat('fr-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
+/**
+ * Converte um objeto Date para formato YYYY-MM-DD usando o fuso horário de Brasília (sem desvio UTC).
+ */
+export function formatDateISO(date?: Date): string {
+  if (!date) {
+    return getBrazilTodayDate();
+  }
+  return toBrazilDateString(date);
 }
 
 /**

@@ -9,7 +9,8 @@ import {
 import {
   formatTimeHHMM,
   calculateTotalHours,
-  formatDateISO,
+  getBrazilTodayDate,
+  toBrazilDateString,
 } from '../utils/formatters';
 import type { Machine, OfflineWorkLog, BillingUnit } from '../types/database';
 import { getStoredMachineBillingUnits } from './adminService';
@@ -418,7 +419,7 @@ export async function startWorkLog(
   const nowDate = new Date();
   const now = nowDate.toISOString();
   const startTimeStr = formatTimeHHMM(nowDate);
-  const todayStr = formatDateISO(nowDate);
+  const todayStr = getBrazilTodayDate(nowDate);
 
   const targetClient = formData.client_name?.trim() || 'A definir';
   const targetPhone = formData.client_phone?.trim() || null;
@@ -526,6 +527,9 @@ export async function finishWorkLog(
   const phone = formData.client_phone?.trim() || null;
   const nowDate = new Date();
   const now = formData.finished_at || nowDate.toISOString();
+  const resolvedServiceDate = formData.service_date
+    ? toBrazilDateString(formData.service_date)
+    : getBrazilTodayDate(nowDate);
   const endTimeStr = formData.end_time || formatTimeHHMM(now);
   const startedIso = formData.started_at || now;
   const startTimeStr = formData.start_time || formatTimeHHMM(startedIso);
@@ -563,7 +567,7 @@ export async function finishWorkLog(
       await db.offline_work_logs.update(targetLocalId, {
         client_name: formData.client_name.trim(),
         client_phone: phone,
-        service_date: formData.service_date,
+        service_date: resolvedServiceDate,
         start_hours: formData.start_hours,
         end_hours: formData.end_hours,
         total_hours,
@@ -589,7 +593,7 @@ export async function finishWorkLog(
         operator_name: formData.operator_name,
         client_name: formData.client_name.trim(),
         client_phone: phone,
-        service_date: formData.service_date,
+        service_date: resolvedServiceDate,
         start_hours: formData.start_hours,
         end_hours: formData.end_hours,
         total_hours,
@@ -684,7 +688,7 @@ export async function finishWorkLog(
           .update({
             client_name: formData.client_name.trim(),
             client_phone: phone,
-            service_date: formData.service_date,
+            service_date: resolvedServiceDate,
             start_hours: formData.start_hours,
             end_hours: formData.end_hours,
             observations: formData.observations?.trim() || null,
@@ -710,7 +714,7 @@ export async function finishWorkLog(
           operator_id: formData.operator_id,
           client_name: formData.client_name.trim(),
           client_phone: phone,
-          service_date: formData.service_date,
+          service_date: resolvedServiceDate,
           start_hours: formData.start_hours,
           end_hours: formData.end_hours,
           observations: formData.observations?.trim() || null,
@@ -790,6 +794,9 @@ export async function submitWorkLog(
   }
   const total_hours = calculateTotalHours(formData.start_hours, formData.end_hours);
   const now = new Date().toISOString();
+  const resolvedServiceDate = formData.service_date
+    ? toBrazilDateString(formData.service_date)
+    : getBrazilTodayDate();
   const phone = formData.client_phone?.trim() || null;
   const online = isOnline ?? (typeof navigator !== 'undefined' && navigator.onLine);
 
@@ -803,7 +810,7 @@ export async function submitWorkLog(
       operator_name: formData.operator_name,
       client_name: formData.client_name.trim(),
       client_phone: phone,
-      service_date: formData.service_date,
+      service_date: resolvedServiceDate,
       start_hours: formData.start_hours,
       end_hours: formData.end_hours,
       total_hours,
@@ -838,7 +845,7 @@ export async function submitWorkLog(
         operator_id: formData.operator_id,
         client_name: formData.client_name.trim(),
         client_phone: phone,
-        service_date: formData.service_date,
+        service_date: resolvedServiceDate,
         start_hours: formData.start_hours,
         end_hours: formData.end_hours,
         observations: formData.observations?.trim() || null,

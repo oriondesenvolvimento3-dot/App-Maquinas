@@ -14,7 +14,12 @@ import {
   type ReportItem,
 } from '../../utils/pdfGenerator';
 import { openWhatsAppShare } from '../../utils/whatsappShare';
-import { formatDateBr, formatCurrencyBRL, formatDateISO } from '../../utils/formatters';
+import {
+  formatDateBr,
+  formatCurrencyBRL,
+  getBrazilTodayDate,
+  toBrazilDateString,
+} from '../../utils/formatters';
 import { AdminBottomNav } from '../../components/AdminBottomNav';
 import {
   Truck,
@@ -47,28 +52,31 @@ const STORAGE_KEY_PAYMENT = 'retroscave_history_payment';
 
 export const getDatePresetRange = (preset: DatePreset): { startDate: string; endDate: string } => {
   const now = new Date();
+  const todayBrazil = getBrazilTodayDate(now);
+  const [brYear, brMonth] = todayBrazil.split('-').map(Number);
+
   switch (preset) {
     case 'ultimos_30': {
       const past30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
       return {
-        startDate: formatDateISO(past30),
-        endDate: formatDateISO(now),
+        startDate: toBrazilDateString(past30),
+        endDate: todayBrazil,
       };
     }
     case 'este_mes': {
-      const start = new Date(now.getFullYear(), now.getMonth(), 1);
-      const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      const start = new Date(brYear, brMonth - 1, 1, 12, 0, 0);
+      const end = new Date(brYear, brMonth, 0, 12, 0, 0);
       return {
-        startDate: formatDateISO(start),
-        endDate: formatDateISO(end),
+        startDate: toBrazilDateString(start),
+        endDate: toBrazilDateString(end),
       };
     }
     case 'mes_anterior': {
-      const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const end = new Date(now.getFullYear(), now.getMonth(), 0);
+      const start = new Date(brYear, brMonth - 2, 1, 12, 0, 0);
+      const end = new Date(brYear, brMonth - 1, 0, 12, 0, 0);
       return {
-        startDate: formatDateISO(start),
-        endDate: formatDateISO(end),
+        startDate: toBrazilDateString(start),
+        endDate: toBrazilDateString(end),
       };
     }
     case 'tudo': {
@@ -111,8 +119,8 @@ export function calculateFinancialSummary(
     selectedPaymentStatus = 'todos',
   } = filters;
 
-  const todayLocalISO = formatDateISO(new Date());
-  const tomorrowLocalISO = formatDateISO(
+  const todayBrazilISO = getBrazilTodayDate();
+  const tomorrowBrazilISO = toBrazilDateString(
     new Date(Date.now() + 24 * 60 * 60 * 1000)
   );
 
@@ -132,18 +140,16 @@ export function calculateFinancialSummary(
         return false;
       }
 
-      const rawServiceDate = String(
-        service.service_date || (service as any).date || ''
-      )
-        .trim()
-        .slice(0, 10);
+      const rawServiceDate = toBrazilDateString(
+        service.service_date || (service as any).date || service.created_at || ''
+      );
 
       if (startDate && rawServiceDate < startDate) return false;
 
       if (endDate) {
-        // Quando endDate é o dia local atual (ex: atalho "Últimos 30 Dias"), tolera +1 dia para cobrir apontamentos gravados após 21:00 em UTC
+        // Quando endDate é o dia atual em Brasília (ex: atalho "Últimos 30 Dias"), tolera +1 dia para cobrir apontamentos gravados após 21:00 em UTC
         const effectiveEndDate =
-          endDate === todayLocalISO ? tomorrowLocalISO : endDate;
+          endDate === todayBrazilISO ? tomorrowBrazilISO : endDate;
         if (rawServiceDate > effectiveEndDate) return false;
       }
 
@@ -451,10 +457,10 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
 
     const effectiveStartDate = startDate || (filteredServices.length > 0
       ? filteredServices.reduce((min, s) => (s.service_date < min ? s.service_date : min), filteredServices[0].service_date)
-      : formatDateISO());
+      : getBrazilTodayDate());
     const effectiveEndDate = endDate || (filteredServices.length > 0
       ? filteredServices.reduce((max, s) => (s.service_date > max ? s.service_date : max), filteredServices[0].service_date)
-      : formatDateISO());
+      : getBrazilTodayDate());
 
     generateServiceReportPdf(
       {
