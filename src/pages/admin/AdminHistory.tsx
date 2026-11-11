@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   fetchFinancialWorkLogs,
   normalizeWorkLogStatus,
+  isWorkLogApproved,
   updateWorkLogPaymentStatus,
   calculateWorkLogBilling,
   type ExtendedWorkLog,
@@ -110,15 +111,41 @@ export function calculateFinancialSummary(
     selectedPaymentStatus = 'todos',
   } = filters;
 
+  const todayLocalISO = formatDateISO(new Date());
+  const tomorrowLocalISO = formatDateISO(
+    new Date(Date.now() + 24 * 60 * 60 * 1000)
+  );
+
   const filteredServices = services
     .filter((service) => {
-      // Regra estrita: o Financeiro aceita EXCLUSIVAMENTE serviços com status 'aprovado' ('approved')
-      if (normalizeWorkLogStatus(service.status) !== 'aprovado') {
+      // Regra estrita (com checagem flexível entre status e approval_status):
+      // o Financeiro aceita EXCLUSIVAMENTE serviços aprovados ('aprovado' | 'approved')
+      const isApproved =
+        service.status === 'aprovado' ||
+        (service.status as any) === 'approved' ||
+        (service as any).approval_status === 'aprovado' ||
+        (service as any).approval_status === 'approved' ||
+        isWorkLogApproved(service) ||
+        normalizeWorkLogStatus(service.status, (service as any).approval_status) === 'aprovado';
+
+      if (!isApproved) {
         return false;
       }
 
-      if (startDate && service.service_date < startDate) return false;
-      if (endDate && service.service_date > endDate) return false;
+      const rawServiceDate = String(
+        service.service_date || (service as any).date || ''
+      )
+        .trim()
+        .slice(0, 10);
+
+      if (startDate && rawServiceDate < startDate) return false;
+
+      if (endDate) {
+        // Quando endDate é o dia local atual (ex: atalho "Últimos 30 Dias"), tolera +1 dia para cobrir apontamentos gravados após 21:00 em UTC
+        const effectiveEndDate =
+          endDate === todayLocalISO ? tomorrowLocalISO : endDate;
+        if (rawServiceDate > effectiveEndDate) return false;
+      }
 
       if (selectedClient !== 'todos') {
         if (service.client_name.toLowerCase() !== selectedClient.toLowerCase()) {
@@ -298,16 +325,25 @@ export const AdminHistory: React.FC<AdminHistoryProps> = ({
     fetchFinancialWorkLogs()
       .then((logs) => {
         const validLogs = logs
-          .filter((s) => normalizeWorkLogStatus(s.status) === 'aprovado')
+          .filter((log) => {
+            const isApproved =
+              log.status === 'aprovado' ||
+              (log.status as any) === 'approved' ||
+              (log as any).approval_status === 'aprovado' ||
+              (log as any).approval_status === 'approved' ||
+              isWorkLogApproved(log) ||
+              normalizeWorkLogStatus(log.status, (log as any).approval_status) === 'aprovado';
+            return isApproved;
+          })
           .map((s) => {
-            const safeHours = Number(s.total_hours) || 0;
+            const { totalHours, totalAmount } = calculateWorkLogBilling(s);
             const safeRate = Number(s.hourly_rate) || 0;
-            const safeAmount = Number((safeHours * safeRate).toFixed(2));
             return {
               ...s,
-              total_hours: safeHours,
+              status: 'aprovado' as const,
+              total_hours: totalHours,
               hourly_rate: safeRate,
-              total_amount: safeAmount,
+              total_amount: totalAmount,
             };
           });
         setAllServices(validLogs);

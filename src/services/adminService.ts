@@ -98,6 +98,7 @@ export interface ExtendedWorkLog {
   total_hours: number;
   observations: string | null;
   status: WorkLogStatus;
+  approval_status?: string;
   payment_status?: PaymentStatus;
   started_at?: string;
   finished_at?: string;
@@ -170,12 +171,37 @@ async function findLocalWorkLog(
 }
 
 /**
+ * Verifica com flexibilidade se um apontamento está aprovado,
+ * aceitando tanto `status` quanto `approval_status` em PT/EN ('aprovado' | 'approved').
+ */
+export function isWorkLogApproved(log: {
+  status?: string | null;
+  approval_status?: string | null;
+}): boolean {
+  const s = String(log.status || '').toLowerCase().trim();
+  const a = String((log as any).approval_status || '').toLowerCase().trim();
+  return (
+    s === 'aprovado' ||
+    s === 'approved' ||
+    a === 'aprovado' ||
+    a === 'approved'
+  );
+}
+
+/**
  * Normaliza qualquer status para o padrão canônico da aplicação
  * Suporta indistintamente 'pendente' / 'pending', 'aprovado' / 'approved', etc.
  */
-export function normalizeWorkLogStatus(status?: string | null): WorkLogStatus {
-  if (!status) return 'pendente';
-  const s = String(status).toLowerCase().trim();
+export function normalizeWorkLogStatus(
+  status?: string | null,
+  approvalStatus?: string | null
+): WorkLogStatus {
+  if (isWorkLogApproved({ status, approval_status: approvalStatus })) {
+    return 'aprovado';
+  }
+  const raw = status || approvalStatus;
+  if (!raw) return 'pendente';
+  const s = String(raw).toLowerCase().trim();
   if (s === 'pending' || s === 'pendente') return 'pendente';
   if (s === 'approved' || s === 'aprovado') return 'aprovado';
   if (s === 'rejected' || s === 'rejeitado') return 'rejeitado';
@@ -381,9 +407,9 @@ export async function fetchAdminWorkLogs(
   if (online) {
     try {
       const applyFilter = (q: any) => {
-        if (filterStatus === 'todos') {
+        if (filterStatus === 'todos' || filterStatus === 'aprovado') {
           // No painel do administrador, NUNCA lista serviços em andamento (check-in sem check-out)
-          // Aceita tanto português quanto inglês para resiliência máxima
+          // Para 'aprovado', busca todos os finalizados e aplica o filtro flexível (status / approval_status) em memória
           return q.in('status', [
             'pendente',
             'pending',
@@ -394,8 +420,6 @@ export async function fetchAdminWorkLogs(
           ] as any);
         } else if (filterStatus === 'pendente') {
           return q.in('status', ['pendente', 'pending'] as any);
-        } else if (filterStatus === 'aprovado') {
-          return q.in('status', ['aprovado', 'approved'] as any);
         } else if (filterStatus === 'rejeitado') {
           return q.in('status', ['rejeitado', 'rejected'] as any);
         }
@@ -611,7 +635,21 @@ export async function fetchAdminWorkLogs(
               end_hours: endH,
               total_hours: totalHours,
               observations: item.observations,
-              status: normalizeWorkLogStatus(item.status),
+              status:
+                isWorkLogApproved({
+                  status: item.status,
+                  approval_status: item.approval_status,
+                }) ||
+                (localMatch
+                  ? isWorkLogApproved({
+                      status: localMatch.status,
+                      approval_status: (localMatch as any).approval_status,
+                    })
+                  : false)
+                  ? 'aprovado'
+                  : normalizeWorkLogStatus(item.status, item.approval_status),
+              approval_status:
+                item.approval_status || (localMatch as any)?.approval_status,
               payment_status: (item.payment_status ||
                 localMatch?.payment_status ||
                 'a_receber') as PaymentStatus,
@@ -652,13 +690,20 @@ export async function fetchAdminWorkLogs(
     }
   }
 
-  // Leitura do banco local Dexie se offline/falha de rede, ou mesclagem de itens pendentes se online
-  if (!fetchedFromSupabase || resultLogs.length === 0) {
-    const allLocalLogs = await db.offline_work_logs.toArray();
-    let localLogs = fetchedFromSupabase
-      ? allLocalLogs.filter((l) => l.sync_status === 'pending' || l.synced === false)
-      : allLocalLogs;
+  // Leitura do banco local Dexie se offline/falha de rede, ou mesclagem de itens locais ausentes na listagem remota
+  const allLocalLogs = await db.offline_work_logs.toArray();
+  const existingIds = new Set(
+    resultLogs.flatMap((r) => [String(r.id), r.server_id ? String(r.server_id) : '']).filter(Boolean)
+  );
+  let localLogs = fetchedFromSupabase
+    ? allLocalLogs.filter(
+        (l) =>
+          (l.server_id ? !existingIds.has(String(l.server_id)) : true) &&
+          (l.id ? !existingIds.has(String(l.id)) : true)
+      )
+    : allLocalLogs;
 
+  if (localLogs.length > 0) {
     // Isolamento estrito do painel admin: nunca exibe serviços em andamento
     if (filterStatus !== 'em_andamento') {
       localLogs = localLogs.filter(
@@ -670,8 +715,8 @@ export async function fetchAdminWorkLogs(
     const storedUnits = getStoredMachineBillingUnits();
     const storedRates = getStoredWorkLogRates();
 
-    resultLogs = localLogs.map((log) => {
-      const status = log.status || 'pendente';
+    const mappedLocalLogs = localLogs.map((log) => {
+      const status = log.status || (log as any).approval_status || 'pendente';
       const machine =
         machineMap.get(log.machine_id) ||
         Array.from(machineMap.values()).find(
@@ -742,6 +787,11 @@ export async function fetchAdminWorkLogs(
       const startedAt = log.started_at || log.created_at;
       const finishedAt =
         log.finished_at || (status !== 'em_andamento' ? log.created_at : undefined);
+      const isApproved =
+        log.status === 'aprovado' ||
+        (log.status as any) === 'approved' ||
+        (log as any).approval_status === 'aprovado' ||
+        (log as any).approval_status === 'approved';
 
       return {
         id: log.id || log.server_id || `temp-${Math.random()}`,
@@ -761,7 +811,8 @@ export async function fetchAdminWorkLogs(
         end_hours: endH,
         total_hours: totalHours,
         observations: log.observations,
-        status: normalizeWorkLogStatus(log.status),
+        status: isApproved ? 'aprovado' : normalizeWorkLogStatus(log.status, (log as any).approval_status),
+        approval_status: (log as any).approval_status,
         payment_status: (log.payment_status || 'a_receber') as PaymentStatus,
         started_at: startedAt,
         finished_at: finishedAt,
@@ -777,19 +828,20 @@ export async function fetchAdminWorkLogs(
       };
     });
 
-    if (filterStatus !== 'todos') {
-      resultLogs = resultLogs.filter((l) => {
-        const norm = normalizeWorkLogStatus(l.status);
-        if (filterStatus === 'pendente') return norm === 'pendente';
-        if (filterStatus === 'aprovado') return norm === 'aprovado';
-        if (filterStatus === 'rejeitado') return norm === 'rejeitado';
-        return l.status === filterStatus;
-      });
-    } else {
-      resultLogs = resultLogs.filter(
-        (l) => normalizeWorkLogStatus(l.status) !== 'em_andamento'
-      );
-    }
+    const filteredLocalLogs =
+      filterStatus !== 'todos'
+        ? mappedLocalLogs.filter((l) => {
+            const norm = normalizeWorkLogStatus(l.status, l.approval_status);
+            if (filterStatus === 'pendente') return norm === 'pendente';
+            if (filterStatus === 'aprovado') return norm === 'aprovado';
+            if (filterStatus === 'rejeitado') return norm === 'rejeitado';
+            return l.status === filterStatus;
+          })
+        : mappedLocalLogs.filter(
+            (l) => normalizeWorkLogStatus(l.status, l.approval_status) !== 'em_andamento'
+          );
+
+    resultLogs = [...resultLogs, ...filteredLocalLogs];
   }
 
   // Ordena por prioridade: pendentes primeiro, depois data de serviço/criação decrescente
@@ -808,14 +860,25 @@ export async function fetchAdminWorkLogs(
 }
 
 /**
- * 2.0.1. Busca exclusivamente os serviços APROVADOS ('aprovado' / 'approved') para o módulo Financeiro.
+ * 2.0.1. Busca exclusivamente os serviços APROVADOS ('aprovado' / 'approved' em `status` ou `approval_status`) para o módulo Financeiro.
  * Serviços pendentes, em andamento ou rejeitados nunca compõem o faturamento.
  */
 export async function fetchFinancialWorkLogs(): Promise<ExtendedWorkLog[]> {
-  const approvedLogs = await fetchAdminWorkLogs('aprovado');
-  return approvedLogs.filter(
-    (log) => normalizeWorkLogStatus(log.status) === 'aprovado'
-  );
+  const allLogs = await fetchAdminWorkLogs('todos');
+  return allLogs
+    .filter((log) => {
+      const isApproved =
+        log.status === 'aprovado' ||
+        (log.status as any) === 'approved' ||
+        (log as any).approval_status === 'aprovado' ||
+        (log as any).approval_status === 'approved' ||
+        isWorkLogApproved(log);
+      return isApproved;
+    })
+    .map((log) => ({
+      ...log,
+      status: 'aprovado' as const,
+    }));
 }
 
 /**
@@ -1086,7 +1149,7 @@ export async function approveWorkLog(
         work_log_id: targetServerId,
         client_name: targetClientName,
         amount: total_amount,
-        service_date: now.split('T')[0],
+        service_date: existing?.service_date || formatDateISO(),
         type: 'receita',
         status: payment_status === 'pago' ? 'pago' : 'pendente',
       });

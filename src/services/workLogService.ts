@@ -9,6 +9,7 @@ import {
 import {
   formatTimeHHMM,
   calculateTotalHours,
+  formatDateISO,
 } from '../utils/formatters';
 import type { Machine, OfflineWorkLog, BillingUnit } from '../types/database';
 import { getStoredMachineBillingUnits } from './adminService';
@@ -417,7 +418,7 @@ export async function startWorkLog(
   const nowDate = new Date();
   const now = nowDate.toISOString();
   const startTimeStr = formatTimeHHMM(nowDate);
-  const todayStr = now.split('T')[0];
+  const todayStr = formatDateISO(nowDate);
 
   const targetClient = formData.client_name?.trim() || 'A definir';
   const targetPhone = formData.client_phone?.trim() || null;

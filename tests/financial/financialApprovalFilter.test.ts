@@ -4,7 +4,11 @@ import {
   fetchFinancialWorkLogs,
 } from '../../src/services/adminService';
 import { db } from '../../src/lib/dexieDb';
-import { calculateFinancialSummary } from '../../src/pages/admin/AdminHistory';
+import {
+  calculateFinancialSummary,
+  getDatePresetRange,
+} from '../../src/pages/admin/AdminHistory';
+import { formatDateISO } from '../../src/utils/formatters';
 import { buildMockWorkLog, clearTestDatabase } from '../fixtures/workLogFixtures';
 
 describe('Financeiro - Filtro Estrito de Aprovação (Exclusão de Pendentes e Rejeitados)', () => {
@@ -106,6 +110,39 @@ describe('Financeiro - Filtro Estrito de Aprovação (Exclusão de Pendentes e R
     expect(summary.totalBilled).toBe(1280);
     expect(summary.totalReceivable).toBe(1280);
     expect(summary.totalPaid).toBe(0);
+  });
+
+  it('deve aceitar serviços aprovados via approval_status e não bloquear serviços gravados com data UTC do dia seguinte (após 21:00)', async () => {
+    const tomorrowISO = formatDateISO(new Date(Date.now() + 24 * 60 * 60 * 1000));
+
+    await db.offline_work_logs.bulkAdd([
+      {
+        ...buildMockWorkLog({
+          client_name: 'Gustavo Granja (Aprovado via approval_status)',
+          service_date: tomorrowISO, // Simula serviço criado após 21:00 com data UTC adiantada
+          start_hours: 100,
+          end_hours: 101.2,
+          hourly_rate: 200,
+          status: 'pendente' as any,
+          payment_status: 'a_receber',
+        }),
+        approval_status: 'approved',
+      } as any,
+    ]);
+
+    const financialLogs = await fetchFinancialWorkLogs();
+    expect(financialLogs.length).toBe(1);
+    expect(financialLogs[0].status).toBe('aprovado');
+
+    const u30 = getDatePresetRange('ultimos_30');
+    const summaryU30 = calculateFinancialSummary(financialLogs, {
+      startDate: u30.startDate,
+      endDate: u30.endDate,
+    });
+
+    expect(summaryU30.filteredServices.length).toBe(1);
+    expect(summaryU30.totalHours).toBe(1.2);
+    expect(summaryU30.totalBilled).toBe(240);
   });
 });
 

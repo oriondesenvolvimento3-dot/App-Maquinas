@@ -6,7 +6,7 @@ import {
   type WorkLogFormData,
   type FinishServiceFormData,
 } from '../../services/workLogService';
-import { calculateTotalHours, formatTimeHHMM } from '../../utils/formatters';
+import { calculateTotalHours, formatTimeHHMM, formatDateISO } from '../../utils/formatters';
 import type { OfflineWorkLog } from '../../types/database';
 import {
   ArrowLeft,
@@ -46,7 +46,7 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
     return '';
   });
   const [serviceDate, setServiceDate] = useState<string>(
-    new Date().toISOString().split('T')[0]
+    formatDateISO()
   );
   const [observations, setObservations] = useState<string>('');
 
