@@ -292,4 +292,56 @@ describe('SyncService - Sincronização Dexie <-> Supabase', () => {
     expect(updatedLocal?.synced).toBe(true);
     expect(updatedLocal?.server_id).toBe('uuid-schedule-999');
   });
+
+  it('syncPendingServices deve atribuir UUID válido a registros legados com ID numérico e enviar insert com id UUID', async () => {
+    await db.offline_work_logs.add({
+      id: 29,
+      machine_id: '123e4567-e89b-12d3-a456-426614174000',
+      machine_name: '310L 02',
+      operator_id: '223e4567-e89b-12d3-a456-426614174111',
+      operator_name: 'Mauro',
+      client_name: 'Obra Legada #29',
+      service_date: '2026-11-10',
+      start_hours: 500,
+      end_hours: 506,
+      total_hours: 6,
+      observations: null,
+      status: 'pendente',
+      sync_status: 'pending',
+      synced: false,
+      created_at: new Date().toISOString(),
+    });
+
+    let sentInsertPayload: any = null;
+    vi.spyOn(supabase, 'from').mockImplementation((table: string) => {
+      if (table === 'work_logs') {
+        return {
+          insert: (payload: any) => {
+            sentInsertPayload = payload;
+            return {
+              select: () => ({
+                single: () => Promise.resolve({ data: { id: payload.id }, error: null }),
+              }),
+            };
+          },
+        } as any;
+      }
+      return {
+        update: () => ({ eq: async () => ({ error: null }) }),
+      } as any;
+    });
+
+    const syncedCount = await syncPendingServices();
+    expect(syncedCount).toBe(1);
+    expect(sentInsertPayload).toBeDefined();
+    expect(typeof sentInsertPayload.id).toBe('string');
+    expect(sentInsertPayload.id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    );
+
+    const updatedLocal = await db.offline_work_logs.get(29);
+    expect(updatedLocal?.sync_status).toBe('synced');
+    expect(updatedLocal?.synced).toBe(true);
+    expect(updatedLocal?.server_id).toBe(sentInsertPayload.id);
+  });
 });

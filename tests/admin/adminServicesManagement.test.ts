@@ -7,7 +7,9 @@ import {
   rejectWorkLog,
   fetchMachines,
   saveMachine,
+  isValidUUID,
 } from '../../src/services/adminService';
+import * as supabaseLib from '../../src/lib/supabase';
 import {
   createScheduledService,
   fetchScheduledServices,
@@ -153,6 +155,170 @@ describe('Admin - Gestão de Serviços, Edição de Tarifa, Máquinas e Agenda',
 
       const afterList = await fetchAdminWorkLogs('todos');
       expect(afterList[0].payment_status).toBe('pago');
+    });
+
+    it('deve validar UUIDs e nunca enviar ID numérico do Dexie (ex: 29) em queries .eq(id, ...) ao Supabase', async () => {
+      expect(isValidUUID(29)).toBe(false);
+      expect(isValidUUID('29')).toBe(false);
+      expect(isValidUUID('123e4567-e89b-12d3-a456-426614174000')).toBe(true);
+
+      await db.offline_work_logs.add({
+        ...buildMockWorkLog({
+          client_name: 'Obra Local ID 29',
+          service_date: '2026-11-10',
+          start_hours: 100,
+          end_hours: 104,
+          status: 'pendente',
+          sync_status: 'pending',
+          synced: false,
+        }),
+        id: 29,
+        server_id: null,
+      });
+
+      const prevNavigator = globalThis.navigator;
+      vi.stubGlobal('navigator', { ...(prevNavigator || {}), onLine: true });
+      vi.spyOn(supabaseLib, 'isSupabaseConfigured').mockReturnValue(true);
+      const fromSpy = vi.spyOn(supabase, 'from').mockImplementation(() => {
+        throw new Error('Não deveria consultar o Supabase com ID numérico local "29"');
+      });
+
+      try {
+        // 1. Editar, aprovar e rejeitar registro estritamente local #29 não pode chamar Supabase com id '29'
+        const updRes = await updateAdminWorkLog(29, {
+          client_name: 'Obra Local Editada',
+          service_date: '2026-11-10',
+          machine_id: 'mach-cat-01',
+          start_hours: 100,
+          end_hours: 104,
+          hourly_rate: 180,
+        });
+        expect(updRes.success).toBe(true);
+        expect(fromSpy).not.toHaveBeenCalled();
+
+        const appRes = await approveWorkLog(29, 180, 720);
+        expect(appRes.success).toBe(true);
+        expect(fromSpy).not.toHaveBeenCalled();
+
+        const approvedLocal = await db.offline_work_logs.get(29);
+        expect(approvedLocal?.status).toBe('aprovado');
+        expect(approvedLocal?.hourly_rate).toBe(180);
+        expect(approvedLocal?.total_amount).toBe(720);
+        expect(approvedLocal?.synced).toBe(false);
+        expect(approvedLocal?.sync_status).toBe('pending');
+
+        const rejRes = await rejectWorkLog(29, 'Teste local');
+        expect(rejRes.success).toBe(true);
+        expect(fromSpy).not.toHaveBeenCalled();
+        expect((await db.offline_work_logs.get(29))?.status).toBe('rejeitado');
+
+        // 2. Quando o registro possui UUID válido em supabase_id/server_id, usa o UUID oficial no Supabase
+        const validUuid = '123e4567-e89b-12d3-a456-426614174000';
+        await db.offline_work_logs.update(29, { supabase_id: validUuid } as any);
+
+        const eqIds: string[] = [];
+        fromSpy.mockImplementation((table: string) => {
+          if (table === 'work_logs') {
+            return {
+              update: () => ({
+                eq: async (_col: string, idVal: string) => {
+                  eqIds.push(idVal);
+                  return { error: null };
+                },
+              }),
+            } as any;
+          }
+          if (table === 'financial_entries') {
+            return {
+              insert: async () => ({ error: null }),
+            } as any;
+          }
+          return { update: () => ({ eq: async () => ({ error: null }) }) } as any;
+        });
+
+        const remoteApproveRes = await approveWorkLog(29, 200, 800);
+        expect(remoteApproveRes.success).toBe(true);
+        expect(eqIds).toEqual([validUuid]);
+      } finally {
+        vi.unstubAllGlobals();
+        vi.restoreAllMocks();
+      }
+    });
+
+    it('deve listar serviços pendentes remotos (pendente/pending) de qualquer data e operador em fetchAdminWorkLogs mesmo com Dexie vazio', async () => {
+      const prevNavigator = globalThis.navigator;
+      vi.stubGlobal('navigator', { ...(prevNavigator || {}), onLine: true });
+      vi.spyOn(supabaseLib, 'isSupabaseConfigured').mockReturnValue(true);
+
+      let orderedByCreatedDesc = false;
+      vi.spyOn(supabase, 'from').mockImplementation((table: string) => {
+        if (table === 'work_logs') {
+          return {
+            select: () => ({
+              order: async (col: string, opts?: { ascending?: boolean }) => {
+                orderedByCreatedDesc = col === 'created_at' && opts?.ascending === false;
+                return {
+                  data: [
+                    {
+                      id: '2001851f-1ec8-4703-869e-ca4cc354f87d',
+                      machine_id: '123e4567-e89b-12d3-a456-426614174000',
+                      operator_id: '223e4567-e89b-12d3-a456-426614174111',
+                      client_name: 'Teste azul',
+                      service_date: '2026-10-05', // data antiga
+                      start_hours: 100,
+                      end_hours: 104,
+                      status: 'pendente',
+                      created_at: '2026-10-05T15:00:00.000Z',
+                    },
+                    {
+                      id: '3001851f-1ec8-4703-869e-ca4cc354f87e',
+                      machine_id: '123e4567-e89b-12d3-a456-426614174000',
+                      operator_id: '323e4567-e89b-12d3-a456-426614174222',
+                      client_name: 'Obra Pendente EN',
+                      service_date: '2026-11-10',
+                      start_hours: 200,
+                      end_hours: 205,
+                      status: 'pending',
+                      created_at: '2026-11-10T20:00:00.000Z',
+                    },
+                    {
+                      id: '4001851f-1ec8-4703-869e-ca4cc354f87f',
+                      machine_id: '123e4567-e89b-12d3-a456-426614174000',
+                      operator_id: '223e4567-e89b-12d3-a456-426614174111',
+                      client_name: 'Obra Aprovada',
+                      service_date: '2026-11-10',
+                      start_hours: 300,
+                      end_hours: 310,
+                      status: 'aprovado',
+                      created_at: '2026-11-10T21:00:00.000Z',
+                    },
+                  ],
+                  error: null,
+                };
+              },
+            }),
+          } as any;
+        }
+        // Simula falha/vazio nas tabelas auxiliares sem poder apagar os work_logs
+        return {
+          select: async () => ({ data: [], error: null }),
+        } as any;
+      });
+
+      try {
+        // Garante Dexie local completamente vazio
+        expect(await db.offline_work_logs.count()).toBe(0);
+
+        const pendentes = await fetchAdminWorkLogs('pendente');
+        expect(orderedByCreatedDesc).toBe(true);
+        expect(pendentes.length).toBe(2);
+        expect(pendentes.map((p) => p.id)).toContain('2001851f-1ec8-4703-869e-ca4cc354f87d');
+        expect(pendentes.map((p) => p.client_name)).toContain('Teste azul');
+        expect(pendentes.map((p) => p.client_name)).toContain('Obra Pendente EN');
+      } finally {
+        vi.unstubAllGlobals();
+        vi.restoreAllMocks();
+      }
     });
   });
 

@@ -162,7 +162,11 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
       }
     } catch (err) {
       console.error('[FinishServiceForm] Erro ao salvar:', err);
-      setGeneralError('Falha inesperada ao registrar finalização do serviço.');
+      setGeneralError(
+        err instanceof Error
+          ? err.message
+          : 'Falha inesperada ao registrar finalização do serviço.'
+      );
     } finally {
       setIsSubmitting(false);
     }

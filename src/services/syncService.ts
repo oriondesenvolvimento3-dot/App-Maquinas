@@ -44,14 +44,61 @@ type WorkLogUpdate = Database['public']['Tables']['work_logs']['Update'];
 type ScheduledServiceInsert = Database['public']['Tables']['scheduled_services']['Insert'];
 type ScheduledServiceUpdate = Database['public']['Tables']['scheduled_services']['Update'];
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
- * Verifica se uma string é um UUID válido do Supabase
+ * Verifica se um valor é uma string com UUID válido do Supabase
  */
-export function isValidUuid(val?: string | null): boolean {
-  if (!val || typeof val !== 'string') return false;
+export function isValidUuid(val?: string | number | null): boolean {
+  if (typeof val !== 'string') return false;
   return UUID_REGEX.test(val.trim());
+}
+
+export const isValidUUID = isValidUuid;
+
+/**
+ * Gera um UUID padrão v4 via `crypto.randomUUID()` para uso unificado no Dexie e Supabase.
+ */
+export function generateWorkLogUUID(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+/**
+ * Identifica se um erro é exclusivamente uma falha de conectividade/rede (sem resposta do servidor)
+ * vs um erro de resposta da API/Postgres (RLS, schema, sintaxe, constraint).
+ */
+export function isNetworkError(err: unknown): boolean {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return true;
+  }
+  if (!err || typeof err !== 'object') return false;
+  const anyErr = err as { code?: string; message?: string; status?: number };
+  const code = String(anyErr.code || '').trim();
+  const msg = String(anyErr.message || '').toLowerCase();
+
+  // Erros com código Postgres (5 chars SQLSTATE) ou PGRST são respostas válidas do servidor, NÃO falhas de rede
+  if (/^([0-9A-Z]{5}|PGRST)/i.test(code)) {
+    return false;
+  }
+
+  return (
+    msg.includes('failed to fetch') ||
+    msg.includes('networkerror') ||
+    msg.includes('network request failed') ||
+    msg.includes('load failed') ||
+    msg.includes('fetch failed') ||
+    msg.includes('err_internet_disconnected') ||
+    msg.includes('network is offline') ||
+    msg.includes('econnrefused') ||
+    msg.includes('etimedout')
+  );
 }
 
 /**
@@ -135,14 +182,26 @@ export function sanitizeWorkLogForSupabase(log: Partial<OfflineWorkLog> & Record
     client_phone: log.client_phone ? String(log.client_phone).trim() : null,
   };
 
+  if (isValidUuid(log.id)) {
+    payload.id = String(log.id).trim();
+  }
   if (log.created_at) {
     payload.created_at = log.created_at;
+  }
+  if (log.hourly_rate !== undefined && log.hourly_rate !== null) {
+    payload.hourly_rate = Number(log.hourly_rate);
+  }
+  if (log.total_amount !== undefined && log.total_amount !== null) {
+    payload.total_amount = Number(log.total_amount);
+  }
+  if (log.payment_status) {
+    payload.payment_status = log.payment_status;
   }
 
   // ATENÇÃO:
   // - NÃO enviar 'started_at' (não existe na tabela remota do Supabase)
   // - NÃO enviar 'total_hours' (é coluna gerada no Postgres - GENERATED ALWAYS)
-  // - NÃO enviar campos de UI: 'machine_name', 'operator_name', 'sync_status', 'synced', 'id', 'localId'
+  // - NÃO enviar campos de UI: 'machine_name', 'operator_name', 'sync_status', 'synced', 'localId' ou 'id' numérico legado
   return payload;
 }
 
@@ -276,8 +335,14 @@ export async function syncPendingServices(): Promise<number> {
       try {
         if (!log.id) continue;
 
-        if (log.server_id) {
-          // Registro já possui ID no servidor (ex: iniciado online e finalizado offline) -> UPDATE
+        const remoteWorkLogUuid = isValidUuid(log.server_id)
+          ? log.server_id!.trim()
+          : isValidUuid((log as any).supabase_id)
+          ? String((log as any).supabase_id).trim()
+          : null;
+
+        if (remoteWorkLogUuid) {
+          // Registro já possui ID UUID no servidor (ex: iniciado online e finalizado offline) -> UPDATE
           const updatePayload: WorkLogUpdate = {
             client_name: log.client_name ? String(log.client_name).trim() : 'Cliente a definir',
             client_phone: log.client_phone ? String(log.client_phone).trim() : null,
@@ -309,20 +374,20 @@ export async function syncPendingServices(): Promise<number> {
           const { error } = await supabase
             .from('work_logs')
             .update(updatePayload)
-            .eq('id', log.server_id);
+            .eq('id', remoteWorkLogUuid);
 
           if (error) {
             console.error(`[SyncService] Erro ao atualizar log local #${log.id} no Supabase:`, error.message);
             continue;
           }
 
-          await markWorkLogAsSynced(log.id, log.server_id);
+          await markWorkLogAsSynced(log.id, remoteWorkLogUuid);
 
           if (
             updatePayload.status !== 'em_andamento' &&
             updatePayload.end_hours !== undefined &&
             updatePayload.end_hours > 0 &&
-            log.machine_id
+            isValidUuid(log.machine_id)
           ) {
             try {
               await supabase
@@ -337,38 +402,66 @@ export async function syncPendingServices(): Promise<number> {
 
           successCount++;
         } else {
-          // Novo registro criado offline -> INSERT limpo sem started_at
-          const insertPayload = sanitizeWorkLogForSupabase(log);
+          // Novo registro criado offline (ou legado com ID numérico) -> garante UUID padrão e envia INSERT
+          const assignedUuid = isValidUuid(log.id)
+            ? String(log.id).trim()
+            : generateWorkLogUUID();
+          const insertPayload: WorkLogInsert = {
+            ...sanitizeWorkLogForSupabase(log),
+            id: assignedUuid,
+          };
 
-          const { data, error } = await supabase
+          let { data, error } = await supabase
             .from('work_logs')
             .insert(insertPayload)
             .select('id')
             .single();
 
+          if (
+            error &&
+            (error.message?.includes('hourly_rate') ||
+              error.message?.includes('total_amount') ||
+              error.message?.includes('payment_status') ||
+              error.message?.includes('column'))
+          ) {
+            const {
+              hourly_rate: _hr,
+              total_amount: _ta,
+              payment_status: _ps,
+              ...minimalPayload
+            } = insertPayload as Record<string, any>;
+            const retry = await supabase
+              .from('work_logs')
+              .insert(minimalPayload as WorkLogInsert)
+              .select('id')
+              .single();
+            data = retry.data;
+            error = retry.error;
+          }
+
           if (error) {
             console.error(`[SyncService] Erro ao sincronizar log local #${log.id}:`, error.message);
+            toast.error(`Falha ao sincronizar serviço: ${error.message}`);
             continue;
           }
 
-          if (data?.id) {
-            // Marca o registro como sincronizado no Dexie com o UUID do servidor e synced: true
-            await markWorkLogAsSynced(log.id, data.id);
+          const confirmedUuid = data?.id || assignedUuid;
+          // Marca o registro como sincronizado no Dexie com o UUID confirmado e synced: true
+          await markWorkLogAsSynced(log.id, confirmedUuid);
 
-            if (insertPayload.status !== 'em_andamento' && insertPayload.end_hours > 0 && log.machine_id) {
-              try {
-                await supabase
-                  .from('machines')
-                  .update({
-                    current_hours: insertPayload.end_hours,
-                    updated_at: new Date().toISOString(),
-                  })
-                  .eq('id', log.machine_id);
-              } catch {}
-            }
-
-            successCount++;
+          if (insertPayload.status !== 'em_andamento' && insertPayload.end_hours > 0 && isValidUuid(log.machine_id)) {
+            try {
+              await supabase
+                .from('machines')
+                .update({
+                  current_hours: insertPayload.end_hours,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq('id', log.machine_id);
+            } catch {}
           }
+
+          successCount++;
         }
       } catch (err) {
         console.error(`[SyncService] Falha inesperada ao processar log #${log.id}:`, err);

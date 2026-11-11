@@ -132,7 +132,9 @@ export const NewServiceForm: React.FC<NewServiceFormProps> = ({ onBack, onSucces
       }
     } catch (err) {
       console.error('[NewServiceForm] Falha ao iniciar serviço:', err);
-      setErrorMessage('Erro inesperado ao salvar início do serviço.');
+      setErrorMessage(
+        err instanceof Error ? err.message : 'Erro inesperado ao salvar início do serviço.'
+      );
     } finally {
       setIsSubmitting(false);
     }

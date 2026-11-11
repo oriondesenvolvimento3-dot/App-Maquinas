@@ -155,8 +155,9 @@ export interface FinancialEntry {
  * Registro de Serviço Offline para Dexie.js (IndexedDB)
  */
 export interface OfflineWorkLog {
-  id?: number; // Chave primária auto-incrementada localmente
-  server_id?: string | null; // UUID retornado pelo Supabase após sincronização
+  id?: string | number; // UUID gerado na origem (ou inteiro legado do Dexie)
+  server_id?: string | null; // UUID oficial no Supabase após inserção/sincronização
+  supabase_id?: string | null; // Alias opcional de UUID remoto
   machine_id: string;
   machine_name: string; // Desnormalizado para visualização offline rápida
   operator_id: string;

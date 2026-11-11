@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   fetchAdminWorkLogs,
+  isPendingStatus,
   updateWorkLogPaymentStatus,
   type ExtendedWorkLog,
   type WorkLogFilter,
@@ -34,6 +35,7 @@ export const AdminServiceList: React.FC<AdminServiceListProps> = ({
   const [services, setServices] = useState<ExtendedWorkLog[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [paymentToastMessage, setPaymentToastMessage] = useState<string | null>(null);
+  const requestSeqRef = useRef<number>(0);
 
   const handleTogglePaymentStatus = async (
     e: React.MouseEvent,
@@ -66,10 +68,19 @@ export const AdminServiceList: React.FC<AdminServiceListProps> = ({
   };
 
   const loadServices = useCallback(() => {
+    const seq = ++requestSeqRef.current;
     setIsLoading(true);
     fetchAdminWorkLogs(activeFilter)
-      .then(setServices)
-      .finally(() => setIsLoading(false));
+      .then((data) => {
+        if (seq === requestSeqRef.current) {
+          setServices(data);
+        }
+      })
+      .finally(() => {
+        if (seq === requestSeqRef.current) {
+          setIsLoading(false);
+        }
+      });
   }, [activeFilter]);
 
   useEffect(() => {
@@ -80,6 +91,14 @@ export const AdminServiceList: React.FC<AdminServiceListProps> = ({
       window.removeEventListener(SYNC_COMPLETE_EVENT, loadServices);
     };
   }, [loadServices]);
+
+  // Garante que na aba Pendentes todos os registros 'pendente'/'pending' sejam exibidos sem qualquer filtro de data
+  const displayedServices = useMemo(() => {
+    if (activeFilter === 'pendente') {
+      return services.filter((s) => isPendingStatus(s.status));
+    }
+    return services;
+  }, [services, activeFilter]);
 
   const getStatusBadge = (status: 'pendente' | 'aprovado' | 'rejeitado' | 'em_andamento' | string) => {
     const s = String(status || '').toLowerCase().trim();
@@ -212,7 +231,7 @@ export const AdminServiceList: React.FC<AdminServiceListProps> = ({
           <div className="py-12 text-center text-xs font-semibold text-[#64748B]">
             Carregando serviços...
           </div>
-        ) : services.length === 0 ? (
+        ) : displayedServices.length === 0 ? (
           <div className="py-12 text-center bg-white border border-[#E2E8F0] rounded-2xl p-6 space-y-3">
             <div>
               <p className="text-sm font-bold text-[#0F172A]">Nenhum item cadastrado ainda</p>
@@ -231,7 +250,7 @@ export const AdminServiceList: React.FC<AdminServiceListProps> = ({
             )}
           </div>
         ) : (
-          services.map((service) => (
+          displayedServices.map((service) => (
             <div
               key={service.id}
               onClick={() => onSelectService(service.id)}

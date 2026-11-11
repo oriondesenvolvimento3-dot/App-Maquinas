@@ -86,6 +86,7 @@ export type WorkLogFilter = 'todos' | 'aprovado' | 'pendente' | 'rejeitado' | 'e
 export interface ExtendedWorkLog {
   id: string | number;
   server_id?: string | null;
+  supabase_id?: string | null;
   machine_id: string;
   machine_name: string;
   machine_model?: string;
@@ -140,19 +141,20 @@ function resolveOptionalTimeHHMM(val?: string | null): string | undefined {
 }
 
 /**
- * Localiza um apontamento no Dexie local pelo ID numérico ou pelo `server_id` UUID.
+ * Localiza um apontamento no Dexie local pelo ID (UUID ou numérico) ou pelo `server_id`.
  */
 async function findLocalWorkLog(
   workLogId: string | number
 ): Promise<OfflineWorkLog | undefined> {
-  if (typeof workLogId === 'number') {
-    return await db.offline_work_logs.get(workLogId);
-  }
+  const byDirectKey = await db.offline_work_logs.get(workLogId);
+  if (byDirectKey) return byDirectKey;
 
-  const numericId = parseInt(String(workLogId), 10);
-  if (!isNaN(numericId) && String(numericId) === String(workLogId).trim()) {
-    const byNum = await db.offline_work_logs.get(numericId);
-    if (byNum) return byNum;
+  if (typeof workLogId === 'string') {
+    const numericId = parseInt(workLogId, 10);
+    if (!isNaN(numericId) && String(numericId) === workLogId.trim()) {
+      const byNum = await db.offline_work_logs.get(numericId);
+      if (byNum) return byNum;
+    }
   }
 
   try {
@@ -167,9 +169,74 @@ async function findLocalWorkLog(
 
   const allLocal = await db.offline_work_logs.toArray();
   return allLocal.find(
-    (l) => l.server_id === String(workLogId) || String(l.id) === String(workLogId)
+    (l) =>
+      l.server_id === String(workLogId) ||
+      (l as any).supabase_id === String(workLogId) ||
+      String(l.id) === String(workLogId)
   );
 }
+
+/**
+ * Valida se um ID é um UUID v1-v5 válido para consultas no Supabase.
+ */
+export const isValidUUID = (id: string | number | null | undefined): boolean => {
+  if (typeof id !== 'string') return false;
+  const uuidRegex =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(id.trim());
+};
+
+/**
+ * Resolve o UUID oficial já existente no Supabase a partir de `existing.server_id`, `existing.supabase_id`
+ * ou do próprio `workLogId` quando sincronizado/remoto.
+ * Retorna `null` caso o apontamento seja estritamente local e ainda não sincronizado.
+ */
+export function resolveSupabaseWorkLogUuid(
+  workLogId: string | number,
+  existing?: (OfflineWorkLog & { supabase_id?: string | null }) | null
+): string | null {
+  if (existing) {
+    if (existing.server_id && isValidUUID(existing.server_id)) {
+      return existing.server_id.trim();
+    }
+    const supabaseId = (existing as any).supabase_id;
+    if (supabaseId && isValidUUID(supabaseId)) {
+      return String(supabaseId).trim();
+    }
+    if (existing.synced === true && isValidUUID(existing.id)) {
+      return String(existing.id).trim();
+    }
+    return null;
+  }
+  if (typeof workLogId === 'string' && isValidUUID(workLogId)) {
+    return workLogId.trim();
+  }
+  return null;
+}
+
+function resolveLocalNumericWorkLogId(
+  workLogId: string | number,
+  existing?: OfflineWorkLog | null
+): string | number | undefined {
+  if (existing?.id !== undefined) return existing.id;
+  if (typeof workLogId === 'number' && !isNaN(workLogId)) return workLogId;
+  if (typeof workLogId === 'string' && workLogId.trim() !== '') {
+    if (isValidUUID(workLogId)) return workLogId.trim();
+    const numericId = Number(workLogId);
+    if (!isNaN(numericId) && String(numericId) === workLogId.trim()) {
+      return numericId;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Verifica se o status representa um apontamento pendente de aprovação ('pendente' ou 'pending').
+ */
+export const isPendingStatus = (status?: string | null): boolean => {
+  const s = String(status || '').toLowerCase().trim();
+  return s === 'pendente' || s === 'pending';
+};
 
 /**
  * Verifica com flexibilidade se um apontamento está aprovado,
@@ -444,83 +511,68 @@ export async function fetchAdminWorkLogs(
 
   if (online) {
     try {
-      const applyFilter = (q: any) => {
-        if (filterStatus === 'todos' || filterStatus === 'aprovado') {
-          // No painel do administrador, NUNCA lista serviços em andamento (check-in sem check-out)
-          // Para 'aprovado', busca todos os finalizados e aplica o filtro flexível (status / approval_status) em memória
-          return q.in('status', [
-            'pendente',
-            'pending',
-            'aprovado',
-            'approved',
-            'rejeitado',
-            'rejected',
-          ] as any);
-        } else if (filterStatus === 'pendente') {
-          return q.in('status', ['pendente', 'pending'] as any);
-        } else if (filterStatus === 'rejeitado') {
-          return q.in('status', ['rejeitado', 'rejected'] as any);
-        }
-        return q.eq('status', filterStatus);
-      };
-
-      let { data, error } = await applyFilter(
-        supabase
-          .from('work_logs')
-          .select('*, machines(id, name, model, hourly_rate)')
-          .order('service_date', { ascending: false })
-      );
-
-      // Fallback caso o relacionamento FK não esteja no cache do PostgREST
-      if (error) {
-        const fallbackRes = await applyFilter(
-          supabase
-            .from('work_logs')
-            .select('*')
-            .order('service_date', { ascending: false })
-        );
-        data = fallbackRes.data;
-        error = fallbackRes.error;
-      }
+      // Visão do Administrador: busca todos os registros de TODOS os operadores sem filtro de auth.uid() nem filtro de data
+      const { data, error } = await supabase
+        .from('work_logs')
+        .select('*')
+        .order('created_at', { ascending: false });
 
       if (error) {
         console.error('[Supabase fetchAdminWorkLogs Error]:', error);
       } else if (data !== null) {
         fetchedFromSupabase = true;
         if (data.length > 0) {
-          // Carrega máquinas e perfis locais ou do Dexie para resolver machine_name, machine_model e hourly_rate
-          let cachedMachines = await db.cached_machines.toArray();
-          const machineIds = new Set(data.map((item: any) => item.machine_id).filter(Boolean));
-          const missingMachine = Array.from(machineIds).some(
-            (id) => !cachedMachines.some((m) => m.id === id)
-          );
-          if (missingMachine || cachedMachines.length === 0) {
-            const { data: remoteMachines } = await supabase.from('machines').select('*');
-            if (remoteMachines && remoteMachines.length > 0) {
-              await db.cached_machines.bulkPut(remoteMachines as Machine[]);
-              cachedMachines = await db.cached_machines.toArray();
+          // Carrega máquinas e perfis auxiliares em blocos isolados para nunca descartar os dados de work_logs
+          let cachedMachines: Machine[] = [];
+          try {
+            cachedMachines = await db.cached_machines.toArray();
+            const machineIds = new Set(data.map((item: any) => item.machine_id).filter(Boolean));
+            const missingMachine = Array.from(machineIds).some(
+              (id) => !cachedMachines.some((m) => m.id === id)
+            );
+            if (missingMachine || cachedMachines.length === 0) {
+              const { data: remoteMachines } = await supabase.from('machines').select('*');
+              if (remoteMachines && remoteMachines.length > 0) {
+                await db.cached_machines.bulkPut(remoteMachines as Machine[]);
+                cachedMachines = await db.cached_machines.toArray();
+              }
             }
+          } catch (machCacheErr) {
+            console.warn('[AdminService] Aviso ao carregar cache de máquinas:', machCacheErr);
           }
           const machineMap = new Map(cachedMachines.map((m) => [m.id, m]));
           const storedUnits = getStoredMachineBillingUnits();
           const storedRates = getStoredWorkLogRates();
 
-          let cachedProfiles = await db.cached_profiles.toArray();
-          const profileIds = new Set(data.map((item: any) => item.operator_id).filter(Boolean));
-          const missingProfile = Array.from(profileIds).some(
-            (id) => !cachedProfiles.some((p) => p.id === id)
-          );
-          if (missingProfile || cachedProfiles.length === 0) {
-            const { data: remoteProfiles } = await supabase.from('profiles').select('*');
-            if (remoteProfiles && remoteProfiles.length > 0) {
-              await db.cached_profiles.bulkPut(remoteProfiles);
-              cachedProfiles = await db.cached_profiles.toArray();
+          let cachedProfiles: any[] = [];
+          try {
+            cachedProfiles = await db.cached_profiles.toArray();
+            const profileIds = new Set(data.map((item: any) => item.operator_id).filter(Boolean));
+            const missingProfile = Array.from(profileIds).some(
+              (id) => !cachedProfiles.some((p) => p.id === id)
+            );
+            if (missingProfile || cachedProfiles.length === 0) {
+              const { data: remoteProfiles } = await supabase.from('profiles').select('*');
+              if (remoteProfiles && remoteProfiles.length > 0) {
+                await db.cached_profiles.bulkPut(remoteProfiles);
+                cachedProfiles = await db.cached_profiles.toArray();
+              }
             }
+          } catch (profCacheErr) {
+            console.warn('[AdminService] Aviso ao carregar cache de perfis:', profCacheErr);
           }
           const profileMap = new Map(cachedProfiles.map((p) => [p.id, p]));
-          const allLocalLogs = await db.offline_work_logs.toArray();
+
+          let allLocalLogs: OfflineWorkLog[] = [];
+          try {
+            allLocalLogs = await db.offline_work_logs.toArray();
+          } catch {}
           const localByServerId = new Map(
-            allLocalLogs.filter((l) => l.server_id).map((l) => [l.server_id!, l])
+            allLocalLogs
+              .flatMap((l) => [
+                ...(l.server_id ? [[l.server_id, l] as const] : []),
+                ...(l.id ? [[String(l.id), l] as const] : []),
+              ])
           );
 
           resultLogs = data.map((item: any) => {
@@ -711,8 +763,8 @@ export async function fetchAdminWorkLogs(
             );
           } else {
             resultLogs = resultLogs.filter((l) => {
-              const norm = normalizeWorkLogStatus(l.status);
-              if (filterStatus === 'pendente') return norm === 'pendente';
+              const norm = normalizeWorkLogStatus(l.status, l.approval_status);
+              if (filterStatus === 'pendente') return isPendingStatus(l.status) || isPendingStatus(norm);
               if (filterStatus === 'aprovado') return norm === 'aprovado';
               if (filterStatus === 'rejeitado') return norm === 'rejeitado';
               return l.status === filterStatus;
@@ -728,7 +780,8 @@ export async function fetchAdminWorkLogs(
     }
   }
 
-  // Leitura do banco local Dexie se offline/falha de rede, ou mesclagem de itens locais ausentes na listagem remota
+  // Se online e o Supabase respondeu com sucesso, o Supabase é a fonte da verdade.
+  // Apenas acrescentamos registros locais genuinamente pendentes de sincronização (nunca sobrescrevendo nem limpando a lista remota).
   const allLocalLogs = await db.offline_work_logs.toArray();
   const existingIds = new Set(
     resultLogs.flatMap((r) => [String(r.id), r.server_id ? String(r.server_id) : '']).filter(Boolean)
@@ -736,6 +789,7 @@ export async function fetchAdminWorkLogs(
   let localLogs = fetchedFromSupabase
     ? allLocalLogs.filter(
         (l) =>
+          (l.sync_status === 'pending' || l.synced === false) &&
           (l.server_id ? !existingIds.has(String(l.server_id)) : true) &&
           (l.id ? !existingIds.has(String(l.id)) : true)
       )
@@ -870,7 +924,7 @@ export async function fetchAdminWorkLogs(
       filterStatus !== 'todos'
         ? mappedLocalLogs.filter((l) => {
             const norm = normalizeWorkLogStatus(l.status, l.approval_status);
-            if (filterStatus === 'pendente') return norm === 'pendente';
+            if (filterStatus === 'pendente') return isPendingStatus(l.status) || isPendingStatus(norm);
             if (filterStatus === 'aprovado') return norm === 'aprovado';
             if (filterStatus === 'rejeitado') return norm === 'rejeitado';
             return l.status === filterStatus;
@@ -971,15 +1025,16 @@ export async function updateAdminWorkLog(
     }
 
     const existing = await findLocalWorkLog(workLogId);
-    const targetServerId = existing?.server_id || String(workLogId);
+    const targetRemoteUuid = resolveSupabaseWorkLogUuid(workLogId, existing);
+    const localNumericId = resolveLocalNumericWorkLogId(workLogId, existing);
 
     setStoredWorkLogRate(workLogId, rate, totalAmount);
-    if (targetServerId) {
-      setStoredWorkLogRate(targetServerId, rate, totalAmount);
+    if (targetRemoteUuid) {
+      setStoredWorkLogRate(targetRemoteUuid, rate, totalAmount);
     }
 
-    // 1. Se online, atualiza na tabela `work_logs` do Supabase e exige confirmação
-    if (online) {
+    // 1. Se online e houver UUID válido do Supabase, atualiza na tabela `work_logs`
+    if (online && targetRemoteUuid) {
       const basePayload = {
         client_name: updates.client_name.trim(),
         client_phone: cleanPhone,
@@ -1001,7 +1056,7 @@ export async function updateAdminWorkLog(
       let { error } = await supabase
         .from('work_logs')
         .update(fullPayload)
-        .eq('id', targetServerId);
+        .eq('id', targetRemoteUuid);
 
       // Fallback resiliente caso o schema remoto não possua alguma coluna financeira opcional
       if (
@@ -1013,7 +1068,7 @@ export async function updateAdminWorkLog(
         const retryRes = await supabase
           .from('work_logs')
           .update(basePayload)
-          .eq('id', targetServerId);
+          .eq('id', targetRemoteUuid);
         error = retryRes.error;
       }
 
@@ -1032,20 +1087,20 @@ export async function updateAdminWorkLog(
             amount: totalAmount,
             service_date: updates.service_date,
           })
-          .eq('work_log_id', targetServerId);
+          .eq('work_log_id', targetRemoteUuid);
       } catch {
         // Ignora silenciosamente se não houver lançamento vinculado
       }
     }
 
-    // 2. Atualiza no cache local do Dexie
-    if (existing?.id) {
-      await db.offline_work_logs.update(existing.id, {
+    // 2. Atualiza no cache local do Dexie (garantindo fila de sincronização caso seja registro apenas local)
+    if (localNumericId !== undefined) {
+      await db.offline_work_logs.update(localNumericId, {
         client_name: updates.client_name.trim(),
         client_phone: cleanPhone,
         service_date: updates.service_date,
         machine_id: updates.machine_id,
-        machine_name: resolvedMachineName || existing.machine_name,
+        machine_name: resolvedMachineName || existing?.machine_name,
         start_hours: Number(updates.start_hours),
         end_hours: Number(updates.end_hours),
         total_hours: totalHours,
@@ -1054,6 +1109,7 @@ export async function updateAdminWorkLog(
         observations: cleanObs,
         ...(updates.billing_unit ? { billing_unit: updates.billing_unit } : {}),
         ...(updates.payment_status ? { payment_status: updates.payment_status } : {}),
+        ...(!targetRemoteUuid ? { sync_status: 'pending' as const, synced: false } : {}),
       });
     }
 
@@ -1080,17 +1136,18 @@ export async function updateWorkLogPaymentStatus(
       typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
 
     const existing = await findLocalWorkLog(workLogId);
-    const targetServerId = existing?.server_id || String(workLogId);
+    const targetRemoteUuid = resolveSupabaseWorkLogUuid(workLogId, existing);
+    const localNumericId = resolveLocalNumericWorkLogId(workLogId, existing);
 
-    // 1. Se online, atualiza `payment_status` na tabela `work_logs` do Supabase
-    if (online) {
+    // 1. Se online e houver UUID válido, atualiza `payment_status` na tabela `work_logs` do Supabase
+    if (online && targetRemoteUuid) {
       const { error } = await supabase
         .from('work_logs')
         .update({
           payment_status: paymentStatus,
           updated_at: now,
         })
-        .eq('id', targetServerId);
+        .eq('id', targetRemoteUuid);
 
       if (error) {
         console.error('[Supabase updateWorkLogPaymentStatus Error]:', error);
@@ -1100,8 +1157,8 @@ export async function updateWorkLogPaymentStatus(
     }
 
     // 2. Atualiza no Dexie local
-    if (existing?.id) {
-      await db.offline_work_logs.update(existing.id, {
+    if (localNumericId !== undefined) {
+      await db.offline_work_logs.update(localNumericId, {
         payment_status: paymentStatus,
       });
     }
@@ -1129,7 +1186,8 @@ export async function approveWorkLog(
       typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
 
     const existing = await findLocalWorkLog(workLogId);
-    const targetServerId = existing?.server_id || String(workLogId);
+    const targetRemoteUuid = resolveSupabaseWorkLogUuid(workLogId, existing);
+    const localNumericId = resolveLocalNumericWorkLogId(workLogId, existing);
 
     let targetMachineId: string | null = existing?.machine_id || null;
     let targetEndHours: number | null =
@@ -1159,12 +1217,12 @@ export async function approveWorkLog(
       (existing?.payment_status as PaymentStatus) || 'a_receber';
 
     setStoredWorkLogRate(workLogId, hourly_rate, total_amount);
-    if (targetServerId) {
-      setStoredWorkLogRate(targetServerId, hourly_rate, total_amount);
+    if (targetRemoteUuid) {
+      setStoredWorkLogRate(targetRemoteUuid, hourly_rate, total_amount);
     }
 
-    // 1. Se online, envia aprovação completa e lançamento financeiro ao Supabase usando o UUID oficial
-    if (online) {
+    // 1. Se online e houver UUID oficial do Supabase, envia aprovação e lançamento financeiro
+    if (online && targetRemoteUuid) {
       const { error: workLogError } = await supabase
         .from('work_logs')
         .update({
@@ -1174,7 +1232,7 @@ export async function approveWorkLog(
           payment_status,
           updated_at: now,
         })
-        .eq('id', targetServerId);
+        .eq('id', targetRemoteUuid);
 
       if (workLogError) {
         console.error('[Supabase approveWorkLog work_logs Error]:', workLogError);
@@ -1182,9 +1240,9 @@ export async function approveWorkLog(
         throw new Error(workLogError.message);
       }
 
-      // Cria lançamento no financeiro com o UUID oficial (targetServerId)
+      // Cria lançamento no financeiro com o UUID oficial (targetRemoteUuid)
       const { error: finError } = await supabase.from('financial_entries').insert({
-        work_log_id: targetServerId,
+        work_log_id: targetRemoteUuid,
         client_name: targetClientName,
         amount: total_amount,
         service_date: existing?.service_date || getBrazilTodayDate(),
@@ -1198,8 +1256,8 @@ export async function approveWorkLog(
         throw new Error(finError.message);
       }
 
-      // Atualiza horômetro no Supabase
-      if (targetMachineId && targetEndHours) {
+      // Atualiza horômetro no Supabase apenas se machine_id for UUID válido
+      if (targetMachineId && isValidUUID(targetMachineId) && targetEndHours) {
         const { error: machineError } = await supabase
           .from('machines')
           .update({ current_hours: targetEndHours, updated_at: now })
@@ -1213,14 +1271,15 @@ export async function approveWorkLog(
       }
     }
 
-    // 2. Atualiza no Dexie local
-    if (existing?.id) {
-      await db.offline_work_logs.update(existing.id, {
+    // 2. Atualiza no Dexie local (se estritamente local sem UUID, preserva na fila de sincronização)
+    if (localNumericId !== undefined) {
+      await db.offline_work_logs.update(localNumericId, {
         status: 'aprovado',
         hourly_rate,
         total_hours: targetHours,
         total_amount,
         payment_status,
+        ...(!targetRemoteUuid ? { sync_status: 'pending' as const, synced: false } : {}),
       });
     }
 
@@ -1251,13 +1310,14 @@ export async function rejectWorkLog(
       typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
 
     const existing = await findLocalWorkLog(workLogId);
-    const targetServerId = existing?.server_id || String(workLogId);
+    const targetRemoteUuid = resolveSupabaseWorkLogUuid(workLogId, existing);
+    const localNumericId = resolveLocalNumericWorkLogId(workLogId, existing);
     const updatedObservations = reason
       ? `${existing?.observations || ''} [Rejeitado: ${reason}]`.trim()
       : existing?.observations;
 
-    // 1. Se online, atualiza no Supabase usando o UUID oficial
-    if (online) {
+    // 1. Se online e houver UUID oficial, atualiza no Supabase
+    if (online && targetRemoteUuid) {
       const { error } = await supabase
         .from('work_logs')
         .update({
@@ -1265,7 +1325,7 @@ export async function rejectWorkLog(
           ...(reason ? { observations: updatedObservations } : {}),
           updated_at: now,
         })
-        .eq('id', targetServerId);
+        .eq('id', targetRemoteUuid);
 
       if (error) {
         console.error('[Supabase rejectWorkLog Error]:', error);
@@ -1274,11 +1334,12 @@ export async function rejectWorkLog(
       }
     }
 
-    // 2. Atualiza no Dexie local
-    if (existing?.id) {
-      await db.offline_work_logs.update(existing.id, {
+    // 2. Atualiza no Dexie local (se estritamente local sem UUID, preserva na fila de sincronização)
+    if (localNumericId !== undefined) {
+      await db.offline_work_logs.update(localNumericId, {
         status: 'rejeitado',
         observations: updatedObservations,
+        ...(!targetRemoteUuid ? { sync_status: 'pending' as const, synced: false } : {}),
       });
     }
 
@@ -1304,14 +1365,14 @@ export async function deleteWorkLog(
 
     // Localiza o registro antes de remover do Dexie para preservar o server_id oficial
     const existing = await findLocalWorkLog(workLogId);
-    const targetServerId = existing?.server_id || String(workLogId);
+    const targetRemoteUuid = resolveSupabaseWorkLogUuid(workLogId, existing);
 
-    // 1. Se online, remove do Supabase usando o UUID oficial
-    if (online) {
+    // 1. Se online e possuir UUID oficial, remove do Supabase
+    if (online && targetRemoteUuid) {
       const { error: finError } = await supabase
         .from('financial_entries')
         .delete()
-        .eq('work_log_id', targetServerId);
+        .eq('work_log_id', targetRemoteUuid);
 
       if (finError) {
         console.error('[Supabase deleteWorkLog financial_entries Error]:', finError);
@@ -1322,7 +1383,7 @@ export async function deleteWorkLog(
       const { error } = await supabase
         .from('work_logs')
         .delete()
-        .eq('id', targetServerId);
+        .eq('id', targetRemoteUuid);
 
       if (error) {
         console.error('[Supabase deleteWorkLog Error]:', error);
@@ -1341,21 +1402,23 @@ export async function deleteWorkLog(
       if (!isNaN(numericId)) {
         await db.offline_work_logs.delete(numericId);
       }
-      try {
-        const matched = await db.offline_work_logs
-          .where('server_id')
-          .equals(targetServerId)
-          .toArray();
-        for (const item of matched) {
-          if (item.id) await db.offline_work_logs.delete(item.id);
-        }
-      } catch {
-        const allLocal = await db.offline_work_logs.toArray();
-        const matched = allLocal.filter(
-          (l) => l.server_id === targetServerId || String(l.id) === String(workLogId)
-        );
-        for (const item of matched) {
-          if (item.id) await db.offline_work_logs.delete(item.id);
+      if (targetRemoteUuid) {
+        try {
+          const matched = await db.offline_work_logs
+            .where('server_id')
+            .equals(targetRemoteUuid)
+            .toArray();
+          for (const item of matched) {
+            if (item.id) await db.offline_work_logs.delete(item.id);
+          }
+        } catch {
+          const allLocal = await db.offline_work_logs.toArray();
+          const matched = allLocal.filter(
+            (l) => l.server_id === targetRemoteUuid || String(l.id) === String(workLogId)
+          );
+          for (const item of matched) {
+            if (item.id) await db.offline_work_logs.delete(item.id);
+          }
         }
       }
     }
@@ -1447,7 +1510,7 @@ export async function saveMachine(
     let savedMachine: Machine;
 
     if (online) {
-      if (machineData.id) {
+      if (machineData.id && isValidUUID(machineData.id)) {
         // EDIÇÃO (UPDATE)
         let { data, error } = await supabase
           .from('machines')

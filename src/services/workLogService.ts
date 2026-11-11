@@ -14,7 +14,13 @@ import {
 } from '../utils/formatters';
 import type { Machine, OfflineWorkLog, BillingUnit } from '../types/database';
 import { getStoredMachineBillingUnits } from './adminService';
-import { SYNC_COMPLETE_EVENT } from './syncService';
+import {
+  SYNC_COMPLETE_EVENT,
+  isValidUUID,
+  generateWorkLogUUID,
+  isNetworkError,
+  toast,
+} from './syncService';
 
 export { formatTimeHHMM, calculateTotalHours };
 
@@ -31,7 +37,7 @@ export interface StartServiceFormData {
 }
 
 export interface FinishServiceFormData {
-  localId?: number;
+  localId?: string | number;
   serverId?: string | null;
   machine_id: string;
   machine_name: string;
@@ -397,7 +403,7 @@ export async function getActiveWorkLogForOperator(
 export async function startWorkLog(
   formData: StartServiceFormData,
   isOnline?: boolean
-): Promise<{ success: boolean; localId?: number; serverId?: string; error?: string }> {
+): Promise<{ success: boolean; localId?: string | number; serverId?: string; error?: string }> {
   if (!formData.machine_id) {
     return { success: false, error: 'Selecione uma máquina.' };
   }
@@ -416,6 +422,7 @@ export async function startWorkLog(
     };
   }
 
+  const recordUuid = generateWorkLogUUID();
   const nowDate = new Date();
   const now = nowDate.toISOString();
   const startTimeStr = formatTimeHHMM(nowDate);
@@ -435,10 +442,15 @@ export async function startWorkLog(
     } catch {}
   }
 
-  // 1. Salva primeiro no banco local Dexie com synced: false
-  let localId: number;
-  try {
-    localId = await saveOfflineWorkLog({
+  const persistLocalStart = async (
+    confirmedServerId: string | null,
+    isSynced: boolean
+  ): Promise<string | number> => {
+    const finalId = confirmedServerId || recordUuid;
+    return await saveOfflineWorkLog({
+      id: finalId,
+      server_id: confirmedServerId,
+      supabase_id: confirmedServerId,
       machine_id: formData.machine_id,
       machine_name: formData.machine_name,
       operator_id: formData.operator_id,
@@ -450,24 +462,26 @@ export async function startWorkLog(
       end_hours: 0,
       total_hours: 0,
       billing_unit: formData.billing_unit || 'hour',
-      km_initial: formData.km_initial ?? (formData.billing_unit === 'km' ? resolvedStartHours : undefined),
+      km_initial:
+        formData.km_initial ??
+        (formData.billing_unit === 'km' ? resolvedStartHours : undefined),
       km_final: undefined,
       total_km: 0,
       observations: null,
       status: 'em_andamento',
       started_at: now,
       start_time: startTimeStr,
+      sync_status: isSynced ? 'synced' : 'pending',
+      synced: isSynced,
+      ...(isSynced ? { synced_at: now } : {}),
     });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Falha ao salvar no banco local';
-    return { success: false, error: message };
-  }
+  };
 
-  // 2. Se houver conexão com a internet, envia imediatamente ao Supabase em segundo plano
+  // 1. PRIORIDADE ABSOLUTA: Se online e configurado, grava primeiro no Supabase usando UUID gerado na origem
   if (online && isSupabaseConfigured()) {
     try {
-      // ATENÇÃO: Enviar estritamente as colunas suportadas pelo Supabase (SEM started_at nem total_hours)
       const payload = {
+        id: recordUuid,
         machine_id: formData.machine_id,
         operator_id: formData.operator_id,
         client_name: targetClient,
@@ -486,22 +500,38 @@ export async function startWorkLog(
         .select('id')
         .single();
 
-      if (!error && data?.id) {
-        await db.offline_work_logs.update(localId, {
-          server_id: data.id,
-          sync_status: 'synced',
-          synced: true,
-          synced_at: now,
-        });
-
-        return { success: true, localId, serverId: data.id };
+      if (error) {
+        if (!isNetworkError(error)) {
+          console.error('[Supabase startWorkLog API Error]:', error);
+          toast.error(error.message);
+          return { success: false, error: error.message };
+        }
+        // Erro de conectividade -> fallback offline abaixo
+        console.warn('[WorkLogService] Falha de rede ao iniciar serviço, salvando em modo offline:', error.message);
+      } else {
+        const confirmedId = data?.id || recordUuid;
+        const localId = await persistLocalStart(confirmedId, true);
+        return { success: true, localId, serverId: confirmedId };
       }
     } catch (err) {
-      console.warn('[WorkLogService] Falha online ao iniciar serviço, mantido no Dexie (synced: false):', err);
+      if (!isNetworkError(err)) {
+        const message = err instanceof Error ? err.message : 'Erro ao iniciar serviço no servidor.';
+        console.error('[Supabase startWorkLog Exception]:', err);
+        toast.error(message);
+        return { success: false, error: message };
+      }
+      console.warn('[WorkLogService] Falha de rede ao iniciar serviço, mantendo no Dexie (synced: false):', err);
     }
   }
 
-  return { success: true, localId };
+  // 2. Fallback estritamente offline (sem conexão ou queda real de rede)
+  try {
+    const localId = await persistLocalStart(null, false);
+    return { success: true, localId };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Falha ao salvar no banco local';
+    return { success: false, error: message };
+  }
 }
 
 /**
@@ -512,7 +542,7 @@ export async function startWorkLog(
 export async function finishWorkLog(
   formData: FinishServiceFormData,
   isOnline?: boolean
-): Promise<{ success: boolean; localId?: number; serverId?: string; error?: string }> {
+): Promise<{ success: boolean; localId?: string | number; serverId?: string; error?: string }> {
   if (!formData.client_name || formData.client_name.trim().length === 0) {
     return { success: false, error: 'Informe o nome do cliente ou da obra.' };
   }
@@ -545,68 +575,72 @@ export async function finishWorkLog(
     } catch {}
   }
 
-  // 1. Resolução do ID local alvo no Dexie
-  let targetLocalId: number | undefined = formData.localId;
-  if (!targetLocalId && formData.serverId) {
-    const byServer = await db.offline_work_logs.where('server_id').equals(formData.serverId).first();
-    if (byServer?.id) targetLocalId = byServer.id;
+  // 1. Resolução do registro local existente e do UUID padrão de origem
+  let existingLocal: OfflineWorkLog | undefined;
+  if (formData.localId !== undefined) {
+    existingLocal = await db.offline_work_logs.get(formData.localId);
   }
-  if (!targetLocalId && formData.operator_id) {
-    const activeLocal = await getActiveWorkLogInDexie(formData.operator_id);
-    if (activeLocal?.id) targetLocalId = activeLocal.id;
+  if (!existingLocal && formData.serverId) {
+    existingLocal = await db.offline_work_logs.where('server_id').equals(formData.serverId).first();
+  }
+  if (!existingLocal && formData.operator_id) {
+    existingLocal = await getActiveWorkLogInDexie(formData.operator_id);
   }
 
-  // 2. Salva o registro finalizado no banco local Dexie com status estrito 'pendente'
-  try {
+  const targetLocalId: string | number | undefined = existingLocal?.id ?? formData.localId;
+  const originUuid: string = isValidUUID(formData.serverId)
+    ? String(formData.serverId).trim()
+    : isValidUUID(existingLocal?.server_id)
+    ? String(existingLocal!.server_id).trim()
+    : typeof targetLocalId === 'string' && isValidUUID(targetLocalId)
+    ? targetLocalId.trim()
+    : generateWorkLogUUID();
+
+  const persistLocalFinish = async (
+    confirmedServerId: string | null,
+    isSynced: boolean
+  ): Promise<string | number> => {
     const isKm = formData.billing_unit === 'km';
     const kmInitial = formData.km_initial ?? (isKm ? formData.start_hours : undefined);
     const kmFinal = formData.km_final ?? (isKm ? formData.end_hours : undefined);
     const totalKm = formData.total_km ?? (isKm ? total_hours : undefined);
 
-    if (targetLocalId) {
-      await db.offline_work_logs.update(targetLocalId, {
-        client_name: formData.client_name.trim(),
-        client_phone: phone,
-        service_date: resolvedServiceDate,
-        start_hours: formData.start_hours,
-        end_hours: formData.end_hours,
-        total_hours,
-        ...(formData.billing_unit ? { billing_unit: formData.billing_unit } : {}),
-        km_initial: kmInitial,
-        km_final: kmFinal,
-        total_km: totalKm,
-        observations: formData.observations?.trim() || null,
-        status: 'pendente',
-        started_at: startedIso,
-        start_time: startTimeStr,
-        finished_at: now,
-        end_time: endTimeStr,
-        sync_status: 'pending',
-        synced: false,
-      });
+    const commonFields = {
+      client_name: formData.client_name.trim(),
+      client_phone: phone,
+      service_date: resolvedServiceDate,
+      start_hours: formData.start_hours,
+      end_hours: formData.end_hours,
+      total_hours,
+      ...(formData.billing_unit ? { billing_unit: formData.billing_unit } : {}),
+      km_initial: kmInitial,
+      km_final: kmFinal,
+      total_km: totalKm,
+      observations: formData.observations?.trim() || null,
+      status: 'pendente' as const,
+      started_at: startedIso,
+      start_time: startTimeStr,
+      finished_at: now,
+      end_time: endTimeStr,
+      ...(confirmedServerId ? { server_id: confirmedServerId, supabase_id: confirmedServerId } : {}),
+      sync_status: isSynced ? ('synced' as const) : ('pending' as const),
+      synced: isSynced,
+      ...(isSynced ? { synced_at: now } : {}),
+    };
+
+    let savedId: string | number;
+    if (targetLocalId !== undefined && existingLocal) {
+      await db.offline_work_logs.update(targetLocalId, commonFields);
+      savedId = targetLocalId;
     } else {
-      targetLocalId = await saveOfflineWorkLog({
-        server_id: formData.serverId || null,
+      savedId = await saveOfflineWorkLog({
+        id: confirmedServerId || originUuid,
         machine_id: formData.machine_id,
         machine_name: formData.machine_name,
         operator_id: formData.operator_id,
         operator_name: formData.operator_name,
-        client_name: formData.client_name.trim(),
-        client_phone: phone,
-        service_date: resolvedServiceDate,
-        start_hours: formData.start_hours,
-        end_hours: formData.end_hours,
-        total_hours,
+        ...commonFields,
         billing_unit: formData.billing_unit || 'hour',
-        km_initial: kmInitial,
-        km_final: kmFinal,
-        total_km: totalKm,
-        observations: formData.observations?.trim() || null,
-        status: 'pendente',
-        started_at: startedIso,
-        start_time: startTimeStr,
-        finished_at: now,
-        end_time: endTimeStr,
       });
     }
 
@@ -620,7 +654,7 @@ export async function finishWorkLog(
       .toArray();
 
     for (const stale of remainingActive) {
-      if (stale.id && stale.id !== targetLocalId) {
+      if (stale.id !== undefined && stale.id !== savedId) {
         if (
           stale.client_name === 'Em andamento' ||
           stale.client_name === 'A definir' ||
@@ -641,48 +675,41 @@ export async function finishWorkLog(
       current_horimeter: formData.end_hours,
       horimeter: formData.end_hours,
     } as any);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Falha ao salvar no banco local';
-    return { success: false, error: message };
-  }
 
-  // 3. Se houver conexão com a internet (navigator.onLine === true), envia imediatamente ao Supabase
-  let resolvedServerId: string | null | undefined = formData.serverId;
+    return savedId;
+  };
+
+  // 2. PRIORIDADE ABSOLUTA: Se online e configurado, grava primeiro no Supabase
+  let resolvedServerId: string | null = null;
+  let syncedToServer = false;
 
   if (online && isSupabaseConfigured()) {
     try {
-      // Atualiza imediatamente o horímetro da máquina na tabela 'machines' do Supabase
-      try {
-        await supabase
-          .from('machines')
-          .update({
-            current_hours: formData.end_hours,
-            updated_at: now,
-          })
-          .eq('id', formData.machine_id);
-      } catch (machErr) {
-        console.warn('[WorkLogService] Falha ao atualizar horímetro da máquina no Supabase:', machErr);
-      }
-      // Se não temos serverId explícito, busca se já existia registro em andamento no Supabase
-      if (!resolvedServerId) {
-        try {
-          const { data: serverActive } = await supabase
-            .from('work_logs')
-            .select('id')
-            .eq('operator_id', formData.operator_id)
-            .in('status', ['em_andamento', 'in_progress'] as any)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+      // Verifica se este serviço já existia no Supabase (iniciado online)
+      let existingRemoteUuid: string | null = isValidUUID(formData.serverId)
+        ? String(formData.serverId).trim()
+        : isValidUUID(existingLocal?.server_id)
+        ? String(existingLocal!.server_id).trim()
+        : existingLocal?.synced && isValidUUID(existingLocal.id)
+        ? String(existingLocal.id).trim()
+        : null;
 
-          if (serverActive?.id) {
-            resolvedServerId = serverActive.id;
-          }
-        } catch {}
+      if (!existingRemoteUuid) {
+        const { data: serverActive } = await supabase
+          .from('work_logs')
+          .select('id')
+          .eq('operator_id', formData.operator_id)
+          .in('status', ['em_andamento', 'in_progress'] as any)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (serverActive?.id && isValidUUID(serverActive.id)) {
+          existingRemoteUuid = serverActive.id;
+        }
       }
 
-      if (resolvedServerId) {
-        // Já existe no servidor -> Atualiza com status 'pendente'
+      if (existingRemoteUuid) {
         const { error } = await supabase
           .from('work_logs')
           .update({
@@ -695,21 +722,21 @@ export async function finishWorkLog(
             status: 'pendente',
             updated_at: now,
           })
-          .eq('id', resolvedServerId);
+          .eq('id', existingRemoteUuid);
 
-        if (!error) {
-          if (targetLocalId) {
-            await db.offline_work_logs.update(targetLocalId, {
-              server_id: resolvedServerId,
-              sync_status: 'synced',
-              synced: true,
-              synced_at: now,
-            });
+        if (error) {
+          if (!isNetworkError(error)) {
+            console.error('[Supabase finishWorkLog Update Error]:', error);
+            toast.error(error.message);
+            return { success: false, error: error.message };
           }
+          throw error;
         }
+        resolvedServerId = existingRemoteUuid;
+        syncedToServer = true;
       } else {
-        // Não existia no servidor (foi iniciado offline) -> Insere novo registro completo com status 'pendente'
         const payload: Record<string, any> = {
+          id: originUuid,
           machine_id: formData.machine_id,
           operator_id: formData.operator_id,
           client_name: formData.client_name.trim(),
@@ -728,20 +755,34 @@ export async function finishWorkLog(
           .select('id')
           .single();
 
-        if (!error && data?.id) {
-          resolvedServerId = data.id;
-          if (targetLocalId) {
-            await db.offline_work_logs.update(targetLocalId, {
-              server_id: data.id,
-              sync_status: 'synced',
-              synced: true,
-              synced_at: now,
-            });
+        if (error) {
+          if (!isNetworkError(error)) {
+            console.error('[Supabase finishWorkLog Insert Error]:', error);
+            toast.error(error.message);
+            return { success: false, error: error.message };
           }
+          throw error;
+        }
+        resolvedServerId = data?.id || originUuid;
+        syncedToServer = true;
+      }
+
+      // Atualiza horímetro da máquina na tabela 'machines' do Supabase (apenas se UUID válido)
+      if (isValidUUID(formData.machine_id)) {
+        try {
+          await supabase
+            .from('machines')
+            .update({
+              current_hours: formData.end_hours,
+              updated_at: now,
+            })
+            .eq('id', formData.machine_id);
+        } catch (machErr) {
+          console.warn('[WorkLogService] Falha ao atualizar horímetro da máquina no Supabase:', machErr);
         }
       }
 
-      // Limpeza de segurança no Supabase: assegura que nenhum registro órfão deste operador permaneça como 'em_andamento'
+      // Limpeza de segurança no Supabase
       try {
         await supabase
           .from('work_logs')
@@ -754,8 +795,22 @@ export async function finishWorkLog(
           .in('status', ['em_andamento', 'in_progress'] as any);
       } catch {}
     } catch (err) {
-      console.warn('[WorkLogService] Falha online ao finalizar serviço, mantido no Dexie (synced: false):', err);
+      if (!isNetworkError(err)) {
+        const message = err instanceof Error ? err.message : 'Erro ao finalizar serviço no servidor.';
+        console.error('[Supabase finishWorkLog Exception]:', err);
+        toast.error(message);
+        return { success: false, error: message };
+      }
+      console.warn('[WorkLogService] Falha de rede ao finalizar serviço, mantendo no Dexie (synced: false):', err);
     }
+  }
+
+  let savedLocalId: string | number;
+  try {
+    savedLocalId = await persistLocalFinish(resolvedServerId, syncedToServer);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Falha ao salvar no banco local';
+    return { success: false, error: message };
   }
 
   // Notifica componentes e ouvintes para revalidação imediata do estado
@@ -769,7 +824,7 @@ export async function finishWorkLog(
     } catch {}
   }
 
-  return { success: true, localId: targetLocalId, serverId: resolvedServerId || undefined };
+  return { success: true, localId: savedLocalId, serverId: resolvedServerId || undefined };
 }
 
 /**
@@ -778,7 +833,13 @@ export async function finishWorkLog(
 export async function submitWorkLog(
   formData: WorkLogFormData,
   isOnline?: boolean
-): Promise<{ success: boolean; isOfflineSaved: boolean; localId?: number; serverId?: string; error?: string }> {
+): Promise<{
+  success: boolean;
+  isOfflineSaved: boolean;
+  localId?: string | number;
+  serverId?: string;
+  error?: string;
+}> {
   if (
     formData.start_hours === undefined ||
     formData.end_hours === undefined ||
@@ -792,6 +853,7 @@ export async function submitWorkLog(
       error: 'O horímetro final deve ser superior ao horímetro inicial.',
     };
   }
+  const recordUuid = generateWorkLogUUID();
   const total_hours = calculateTotalHours(formData.start_hours, formData.end_hours);
   const now = new Date().toISOString();
   const resolvedServiceDate = formData.service_date
@@ -800,10 +862,15 @@ export async function submitWorkLog(
   const phone = formData.client_phone?.trim() || null;
   const online = isOnline ?? (typeof navigator !== 'undefined' && navigator.onLine);
 
-  // 1. Salva primeiro no banco local Dexie com synced: false
-  let localId: number;
-  try {
-    localId = await saveOfflineWorkLog({
+  const persistLocalSubmit = async (
+    confirmedServerId: string | null,
+    isSynced: boolean
+  ): Promise<string | number> => {
+    const finalId = confirmedServerId || recordUuid;
+    const localId = await saveOfflineWorkLog({
+      id: finalId,
+      server_id: confirmedServerId,
+      supabase_id: confirmedServerId,
       machine_id: formData.machine_id,
       machine_name: formData.machine_name,
       operator_id: formData.operator_id,
@@ -816,6 +883,9 @@ export async function submitWorkLog(
       total_hours,
       observations: formData.observations?.trim() || null,
       status: 'pendente',
+      sync_status: isSynced ? 'synced' : 'pending',
+      synced: isSynced,
+      ...(isSynced ? { synced_at: now } : {}),
     });
 
     await db.cached_machines.update(formData.machine_id, {
@@ -823,24 +893,15 @@ export async function submitWorkLog(
       current_horimeter: formData.end_hours,
       horimeter: formData.end_hours,
     } as any);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Falha ao salvar no banco local';
-    return { success: false, isOfflineSaved: false, error: message };
-  }
 
-  // 2. Se houver conexão com a internet, tenta enviar imediatamente para work_logs do Supabase
+    return localId;
+  };
+
+  // 1. PRIORIDADE ABSOLUTA: Se online e configurado, envia primeiro ao Supabase usando UUID gerado na origem
   if (online && isSupabaseConfigured()) {
     try {
-      try {
-        await supabase
-          .from('machines')
-          .update({
-            current_hours: formData.end_hours,
-            updated_at: now,
-          })
-          .eq('id', formData.machine_id);
-      } catch {}
       const payload = {
+        id: recordUuid,
         machine_id: formData.machine_id,
         operator_id: formData.operator_id,
         client_name: formData.client_name.trim(),
@@ -860,23 +921,48 @@ export async function submitWorkLog(
         .single();
 
       if (error) {
-        console.error('[Supabase saveWorkLog Error]:', error);
-      } else if (data?.id) {
-        await db.offline_work_logs.update(localId, {
-          server_id: data.id,
-          sync_status: 'synced',
-          synced: true,
-          synced_at: now,
-        });
+        if (!isNetworkError(error)) {
+          console.error('[Supabase saveWorkLog API Error]:', error);
+          toast.error(error.message);
+          return { success: false, isOfflineSaved: false, error: error.message };
+        }
+        console.warn('[WorkLogService] Falha de rede ao enviar serviço, salvando offline:', error.message);
+      } else {
+        const confirmedId = data?.id || recordUuid;
+        if (isValidUUID(formData.machine_id)) {
+          try {
+            await supabase
+              .from('machines')
+              .update({
+                current_hours: formData.end_hours,
+                updated_at: now,
+              })
+              .eq('id', formData.machine_id);
+          } catch {}
+        }
 
-        return { success: true, isOfflineSaved: false, localId, serverId: data.id };
+        const localId = await persistLocalSubmit(confirmedId, true);
+        return { success: true, isOfflineSaved: false, localId, serverId: confirmedId };
       }
     } catch (err) {
-      console.warn('[WorkLogService] Falha online, mantendo registro com synced: false no Dexie:', err);
+      if (!isNetworkError(err)) {
+        const message = err instanceof Error ? err.message : 'Erro ao enviar apontamento ao servidor.';
+        console.error('[Supabase saveWorkLog Exception]:', err);
+        toast.error(message);
+        return { success: false, isOfflineSaved: false, error: message };
+      }
+      console.warn('[WorkLogService] Falha de rede, mantendo registro com synced: false no Dexie:', err);
     }
   }
 
-  return { success: true, isOfflineSaved: true, localId };
+  // 2. Fallback estritamente offline
+  try {
+    const localId = await persistLocalSubmit(null, false);
+    return { success: true, isOfflineSaved: true, localId };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Falha ao salvar no banco local';
+    return { success: false, isOfflineSaved: false, error: message };
+  }
 }
 
 /**
@@ -932,8 +1018,8 @@ export async function cancelWorkLog(
       }
     }
 
-    // 2. Se já havia sido enviado ao Supabase e houver conexão, remove da tabela `work_logs`
-    if (resolvedServerId && online && isSupabaseConfigured()) {
+    // 2. Se já havia sido enviado ao Supabase com UUID válido e houver conexão, remove da tabela `work_logs`
+    if (resolvedServerId && isValidUUID(resolvedServerId) && online && isSupabaseConfigured()) {
       const { error } = await supabase
         .from('work_logs')
         .delete()

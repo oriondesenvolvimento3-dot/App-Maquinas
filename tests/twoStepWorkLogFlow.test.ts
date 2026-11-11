@@ -1,12 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   startWorkLog,
   finishWorkLog,
+  submitWorkLog,
   cancelWorkLog,
   getActiveWorkLogForOperator,
   getLatestHorimeterForMachine,
 } from '../src/services/workLogService';
-import { fetchAdminWorkLogs } from '../src/services/adminService';
+import { fetchAdminWorkLogs, isValidUUID } from '../src/services/adminService';
+import { supabase } from '../src/lib/supabase';
+import * as supabaseLib from '../src/lib/supabase';
 import { db } from '../src/lib/dexieDb';
 import { buildMockMachine, buildMockWorkLog, clearTestDatabase } from './fixtures/workLogFixtures';
 
@@ -321,6 +324,141 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
       const finished = await db.offline_work_logs.get(active!.id!);
       expect(finished?.client_name).toBe('Sítio Primavera - Setor B');
       expect(finished?.client_name).not.toBe('Em andamento');
+    });
+  });
+
+  describe('UUID na Origem e Tratamento Estrito de Erros Supabase vs Rede', () => {
+    it('deve gerar UUID padrão na origem e usá-lo no Dexie e no payload enviado ao Supabase', async () => {
+      vi.spyOn(supabaseLib, 'isSupabaseConfigured').mockReturnValue(true);
+
+      let insertedPayload: any = null;
+      vi.spyOn(supabase, 'from').mockImplementation((table: string) => {
+        if (table === 'work_logs') {
+          return {
+            select: () => ({
+              eq: () => ({
+                in: () => ({
+                  order: () => ({
+                    limit: () => ({
+                      maybeSingle: async () => ({ data: null, error: null }),
+                    }),
+                  }),
+                }),
+              }),
+            }),
+            insert: (payload: any) => {
+              insertedPayload = payload;
+              return {
+                select: () => ({
+                  single: async () => ({ data: { id: payload.id }, error: null }),
+                }),
+              };
+            },
+          } as any;
+        }
+        return {
+          update: () => ({ eq: async () => ({ error: null }) }),
+        } as any;
+      });
+
+      const res = await submitWorkLog(
+        {
+          machine_id: '123e4567-e89b-12d3-a456-426614174000',
+          machine_name: '310L 02',
+          operator_id: '223e4567-e89b-12d3-a456-426614174111',
+          operator_name: 'Mauro',
+          client_name: 'Obra UUID Direto',
+          service_date: '2026-11-10',
+          start_hours: 100,
+          end_hours: 105,
+          observations: null,
+        },
+        true
+      );
+
+      expect(res.success).toBe(true);
+      expect(res.isOfflineSaved).toBe(false);
+      expect(isValidUUID(res.localId)).toBe(true);
+      expect(res.serverId).toBe(res.localId);
+      expect(insertedPayload?.id).toBe(res.localId);
+
+      const savedLocal = await db.offline_work_logs.get(res.localId!);
+      expect(savedLocal?.synced).toBe(true);
+      expect(savedLocal?.sync_status).toBe('synced');
+      expect(savedLocal?.id).toBe(res.localId);
+
+      vi.restoreAllMocks();
+    });
+
+    it('não deve mascarar erro de RLS/Postgres do Supabase como modo offline (deve rejeitar explicitamente)', async () => {
+      vi.spyOn(supabaseLib, 'isSupabaseConfigured').mockReturnValue(true);
+      vi.spyOn(supabase, 'from').mockImplementation((table: string) => {
+        if (table === 'work_logs') {
+          return {
+            select: () => ({
+              eq: () => ({
+                in: () => ({
+                  order: () => ({
+                    limit: () => ({
+                      maybeSingle: async () => ({ data: null, error: null }),
+                    }),
+                  }),
+                }),
+              }),
+            }),
+            insert: () => ({
+              select: () => ({
+                single: async () => ({
+                  data: null,
+                  error: {
+                    code: '42501',
+                    message: 'new row violates row-level security policy for table "work_logs"',
+                  },
+                }),
+              }),
+            }),
+          } as any;
+        }
+        return { update: () => ({ eq: async () => ({ error: null }) }) } as any;
+      });
+
+      const startFail = await startWorkLog(
+        {
+          machine_id: '123e4567-e89b-12d3-a456-426614174000',
+          machine_name: '310L 02',
+          operator_id: 'op-rls-test',
+          operator_name: 'Mauro',
+          start_hours: 1500,
+        },
+        true
+      );
+
+      expect(startFail.success).toBe(false);
+      expect(startFail.error).toContain('row-level security policy');
+      // Não pode ter gravado silenciosamente no Dexie fingindo sucesso
+      expect(await db.offline_work_logs.count()).toBe(0);
+
+      const submitFail = await submitWorkLog(
+        {
+          machine_id: '123e4567-e89b-12d3-a456-426614174000',
+          machine_name: '310L 02',
+          operator_id: 'op-rls-test',
+          operator_name: 'Mauro',
+          client_name: 'Teste RLS',
+          service_date: '2026-11-10',
+          start_hours: 100,
+          end_hours: 105,
+          observations: null,
+        },
+        true
+      );
+
+      expect(submitFail.success).toBe(false);
+      expect(submitFail.isOfflineSaved).toBe(false);
+      expect(submitFail.error).toContain('row-level security policy');
+      expect(await db.offline_work_logs.count()).toBe(0);
+
+      vi.restoreAllMocks();
     });
   });
 });

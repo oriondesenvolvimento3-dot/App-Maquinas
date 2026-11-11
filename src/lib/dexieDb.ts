@@ -7,7 +7,7 @@ import type { OfflineWorkLog, Machine, Profile, ScheduledService, Client } from 
  */
 export class RetroscaveDexieDB extends Dexie {
   // Tabela local de apontamentos de horas realizados no dispositivo
-  offline_work_logs!: Table<OfflineWorkLog, number>;
+  offline_work_logs!: Table<OfflineWorkLog, string | number>;
 
   // Tabelas de cache local para seleção de máquinas, operadores e clientes em modo offline
   cached_machines!: Table<Machine, string>;
@@ -91,19 +91,23 @@ export const db = new RetroscaveDexieDB();
  * Salva um novo apontamento de serviço localmente
  */
 export async function saveOfflineWorkLog(
-  entry: Omit<OfflineWorkLog, 'id' | 'created_at' | 'sync_status'>
-): Promise<number> {
+  entry: Omit<OfflineWorkLog, 'id' | 'created_at' | 'sync_status'> & {
+    id?: string | number;
+    created_at?: string;
+    sync_status?: 'pending' | 'synced';
+  }
+): Promise<string | number> {
   const newLog: OfflineWorkLog = {
     ...entry,
-    sync_status: 'pending',
-    synced: false,
+    sync_status: entry.sync_status || 'pending',
+    synced: entry.synced ?? false,
     status: entry.status || 'pendente',
     payment_status: entry.payment_status || 'a_receber',
-    created_at: new Date().toISOString(),
+    created_at: entry.created_at || new Date().toISOString(),
   };
 
-  const id = await db.offline_work_logs.add(newLog);
-  return id as number;
+  const id = await db.offline_work_logs.put(newLog);
+  return id;
 }
 
 /**
@@ -118,13 +122,14 @@ export async function getPendingWorkLogs(): Promise<OfflineWorkLog[]> {
  * Atualiza o status de sincronização de um apontamento local após envio bem-sucedido ao Supabase
  */
 export async function markWorkLogAsSynced(
-  localId: number,
+  localId: string | number,
   serverId: string
 ): Promise<number> {
   return await db.offline_work_logs.update(localId, {
     sync_status: 'synced',
     synced: true,
     server_id: serverId,
+    supabase_id: serverId,
     synced_at: new Date().toISOString(),
   });
 }
@@ -192,15 +197,18 @@ export async function getActiveWorkLogInDexie(
 
   if (activeLogs.length === 0) return undefined;
 
-  // Retorna o mais recente
-  return activeLogs.sort((a, b) => (b.id || 0) - (a.id || 0))[0];
+  // Retorna o mais recente por data de criação
+  return activeLogs.sort(
+    (a, b) =>
+      new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+  )[0];
 }
 
 /**
  * Atualiza um apontamento local pelo ID
  */
 export async function updateOfflineWorkLog(
-  id: number,
+  id: string | number,
   changes: Partial<OfflineWorkLog>
 ): Promise<number> {
   return await db.offline_work_logs.update(id, changes);
@@ -209,7 +217,7 @@ export async function updateOfflineWorkLog(
 /**
  * Exclui um apontamento local pelo ID
  */
-export async function deleteOfflineWorkLog(id: number): Promise<void> {
+export async function deleteOfflineWorkLog(id: string | number): Promise<void> {
   await db.offline_work_logs.delete(id);
 }
 

@@ -7,6 +7,7 @@ import {
   approveWorkLog,
   rejectWorkLog,
   deleteWorkLog,
+  isValidUUID,
   type ExtendedWorkLog,
 } from '../../services/adminService';
 import type { Machine, PaymentStatus } from '../../types/database';
@@ -78,7 +79,12 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
     fetchMachines().then(setMachines);
 
     fetchAdminWorkLogs('todos').then((all) => {
-      const found = all.find((s) => String(s.id) === String(serviceId));
+      const found = all.find(
+        (s) =>
+          String(s.id) === String(serviceId) ||
+          (s.server_id && String(s.server_id) === String(serviceId)) ||
+          (s.supabase_id && String(s.supabase_id) === String(serviceId))
+      );
       if (found) {
         setService(found);
         const rawClient = found.client_name || '';
@@ -157,6 +163,12 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
     }
   };
 
+  const resolveTargetWorkLogId = (item: ExtendedWorkLog): string | number => {
+    if (isValidUUID(item.server_id)) return String(item.server_id).trim();
+    if (isValidUUID(item.supabase_id)) return String(item.supabase_id).trim();
+    return item.id;
+  };
+
   /**
    * Atualiza imediatamente o status de pagamento ('pago' | 'a_receber') no Supabase e Dexie
    */
@@ -165,7 +177,7 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
     setIsUpdatingPayment(true);
     setPaymentStatus(newStatus);
 
-    const res = await updateWorkLogPaymentStatus(service.id, newStatus);
+    const res = await updateWorkLogPaymentStatus(resolveTargetWorkLogId(service), newStatus);
     setIsUpdatingPayment(false);
 
     if (res.success) {
@@ -209,7 +221,7 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
     const cleanPhone = clientPhoneInput.trim() || null;
     const cleanObs = observationsInput.trim() || null;
 
-    const result = await updateAdminWorkLog(service.id, {
+    const result = await updateAdminWorkLog(resolveTargetWorkLogId(service), {
       client_name: clientNameInput.trim(),
       client_phone: cleanPhone,
       service_date: serviceDateInput,
@@ -277,7 +289,8 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
     // 1. Garante que quaisquer edições feitas nos campos sejam persistidas no Supabase e Dexie
     const cleanPhone = clientPhoneInput.trim() || null;
     const cleanObs = observationsInput.trim() || null;
-    const updateRes = await updateAdminWorkLog(service.id, {
+    const targetWorkLogId = resolveTargetWorkLogId(service);
+    const updateRes = await updateAdminWorkLog(targetWorkLogId, {
       client_name: clientNameInput.trim(),
       client_phone: cleanPhone,
       service_date: serviceDateInput,
@@ -299,7 +312,7 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
     }
 
     // 2. Aprova o apontamento e gera o lançamento financeiro
-    const result = await approveWorkLog(service.id, numericRate, calculatedTotal);
+    const result = await approveWorkLog(targetWorkLogId, numericRate, calculatedTotal);
     setIsProcessing(false);
 
     if (result.success) {
@@ -334,7 +347,10 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
     setIsProcessing(true);
     setFeedback(null);
 
-    const result = await rejectWorkLog(service.id, 'Rejeitado na conferência pelo administrador');
+    const result = await rejectWorkLog(
+      resolveTargetWorkLogId(service),
+      'Rejeitado na conferência pelo administrador'
+    );
     setIsProcessing(false);
 
     if (result.success) {
@@ -353,7 +369,7 @@ export const AdminServiceDetail: React.FC<AdminServiceDetailProps> = ({
     setIsProcessing(true);
     setFeedback(null);
 
-    const result = await deleteWorkLog(service.id);
+    const result = await deleteWorkLog(resolveTargetWorkLogId(service));
     setIsProcessing(false);
     setIsDeleteModalOpen(false);
 
