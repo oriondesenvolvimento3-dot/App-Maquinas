@@ -33,6 +33,19 @@ interface OperatorHomeProps {
   onNavigateToAdmin?: () => void;
 }
 
+export const calculateLogHours = (item: any): number => {
+  const directTotal = Number(item?.total_hours);
+  if (!isNaN(directTotal) && directTotal > 0) {
+    return directTotal;
+  }
+  const start = Number(item?.start_hours ?? item?.initial_horimeter ?? 0);
+  const end = Number(item?.end_hours ?? item?.final_horimeter ?? 0);
+  if (!isNaN(start) && !isNaN(end) && end > start) {
+    return Number((end - start).toFixed(2));
+  }
+  return 0;
+};
+
 export const OperatorHome: React.FC<OperatorHomeProps> = ({
   onNavigateToNewService,
   onNavigateToFinishService,
@@ -96,15 +109,26 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
 
       if (isOnline && isSupabaseConfigured()) {
         try {
-          let query = supabase
-            .from('work_logs')
-            .select('service_date, total_hours, status, operator_id');
+          const runWorkLogsQuery = async (columns: string) => {
+            let query = supabase.from('work_logs').select(columns);
+            if (operatorId) {
+              query = query.eq('operator_id', operatorId);
+            }
+            return await query;
+          };
 
-          if (operatorId) {
-            query = query.eq('operator_id', operatorId);
+          let { data, error } = await runWorkLogsQuery(
+            'service_date, total_hours, start_hours, end_hours, initial_horimeter, final_horimeter, status, operator_id'
+          );
+
+          // Fallback resiliente caso initial_horimeter/final_horimeter não existam no schema do Supabase
+          if (error) {
+            const fallback = await runWorkLogsQuery(
+              'service_date, total_hours, start_hours, end_hours, status, operator_id'
+            );
+            data = fallback.data;
+            error = fallback.error;
           }
-
-          const { data, error } = await query;
 
           if (error) {
             console.error('[Supabase OperatorHome work_logs Error]:', error);
@@ -112,7 +136,7 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
             fetchedFromSupabase = true;
             logsForMetrics = data.map((item: any) => ({
               service_date: item.service_date,
-              total_hours: Number(item.total_hours || 0),
+              total_hours: calculateLogHours(item),
               status: item.status,
             }));
           }
@@ -128,7 +152,7 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
           : localLogs;
         logsForMetrics = filteredLocal.map((l) => ({
           service_date: l.service_date,
-          total_hours: Number(l.total_hours || 0),
+          total_hours: calculateLogHours(l),
           status: l.status,
         }));
       } else {
@@ -142,7 +166,7 @@ export const OperatorHome: React.FC<OperatorHomeProps> = ({
         for (const pend of pendingLocal) {
           logsForMetrics.push({
             service_date: pend.service_date,
-            total_hours: Number(pend.total_hours || 0),
+            total_hours: calculateLogHours(pend),
             status: pend.status,
           });
         }

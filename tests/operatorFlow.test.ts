@@ -6,6 +6,7 @@ import {
   submitWorkLog,
   type WorkLogFormData,
 } from '../src/services/workLogService';
+import { calculateLogHours } from '../src/pages/operator/OperatorHome';
 import { db } from '../src/lib/dexieDb';
 
 describe('Fluxo do Operador - Cálculo de Horímetro e Validação', () => {
@@ -51,6 +52,15 @@ describe('Fluxo do Operador - Cálculo de Horímetro e Validação', () => {
     it('deve tratar entradas NaN de forma segura retornando 0', () => {
       expect(calculateTotalHours(NaN, 1250)).toBe(0);
       expect(calculateTotalHours(1250, NaN)).toBe(0);
+    });
+
+    it('calculateLogHours deve calcular horas pela diferença dos horímetros quando total_hours for 0 ou nulo', () => {
+      expect(calculateLogHours({ total_hours: 4.5, start_hours: 100, end_hours: 102 })).toBe(4.5);
+      expect(calculateLogHours({ total_hours: 0, start_hours: 1500, end_hours: 1503.2 })).toBe(3.2);
+      expect(
+        calculateLogHours({ total_hours: null, initial_horimeter: 200, final_horimeter: 204.5 })
+      ).toBe(4.5);
+      expect(calculateLogHours({ total_hours: 0, start_hours: 100, end_hours: 95 })).toBe(0);
     });
   });
 
