@@ -48,6 +48,7 @@ const AppNavigator: React.FC = () => {
   const [activeServiceToFinish, setActiveServiceToFinish] = useState<OfflineWorkLog | null>(null);
   const [lastRegisteredService, setLastRegisteredService] = useState<WorkLogFormData | null>(null);
   const [selectedServiceId, setSelectedServiceId] = useState<string | number | null>(null);
+  const [serviceDetailReturnRoute, setServiceDetailReturnRoute] = useState<AppRoute>('admin-services');
   const [homeKey, setHomeKey] = useState<number>(0);
 
   // 1. Carregamento inicial da sessão
@@ -148,6 +149,7 @@ const AppNavigator: React.FC = () => {
           onNavigateToServices={() => setCurrentRoute('admin-services')}
           onNavigateToServiceDetail={(id) => {
             setSelectedServiceId(id);
+            setServiceDetailReturnRoute('admin-dashboard');
             setCurrentRoute('admin-service-detail');
           }}
           onNavigateToMachines={() => setCurrentRoute('admin-machines')}
@@ -163,6 +165,7 @@ const AppNavigator: React.FC = () => {
           onBackToDashboard={() => setCurrentRoute('admin-dashboard')}
           onSelectService={(id) => {
             setSelectedServiceId(id);
+            setServiceDetailReturnRoute('admin-services');
             setCurrentRoute('admin-service-detail');
           }}
           onNavigateToMachines={() => setCurrentRoute('admin-machines')}
@@ -178,6 +181,7 @@ const AppNavigator: React.FC = () => {
             onBackToDashboard={() => setCurrentRoute('admin-dashboard')}
             onSelectService={(id) => {
               setSelectedServiceId(id);
+              setServiceDetailReturnRoute('admin-services');
               setCurrentRoute('admin-service-detail');
             }}
             onNavigateToMachines={() => setCurrentRoute('admin-machines')}
@@ -189,8 +193,8 @@ const AppNavigator: React.FC = () => {
       return (
         <AdminServiceDetail
           serviceId={selectedServiceId}
-          onBack={() => setCurrentRoute('admin-services')}
-          onActionComplete={() => setCurrentRoute('admin-services')}
+          onBack={() => setCurrentRoute(serviceDetailReturnRoute)}
+          onActionComplete={() => setCurrentRoute(serviceDetailReturnRoute)}
         />
       );
 
@@ -203,6 +207,7 @@ const AppNavigator: React.FC = () => {
           onNavigateToAgenda={() => setCurrentRoute('admin-agenda')}
           onSelectServiceDetail={(id) => {
             setSelectedServiceId(id);
+            setServiceDetailReturnRoute('admin-history');
             setCurrentRoute('admin-service-detail');
           }}
         />
@@ -217,6 +222,7 @@ const AppNavigator: React.FC = () => {
           onNavigateToMachines={() => setCurrentRoute('admin-machines')}
           onSelectServiceDetail={(id) => {
             setSelectedServiceId(id);
+            setServiceDetailReturnRoute('admin-agenda');
             setCurrentRoute('admin-service-detail');
           }}
         />
