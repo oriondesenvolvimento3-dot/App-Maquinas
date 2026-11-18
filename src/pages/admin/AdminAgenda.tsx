@@ -298,6 +298,11 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
   const todayStr = useMemo(() => getTodayStr(), []);
   const tomorrowStr = useMemo(() => getTomorrowStr(), []);
 
+  const isOverdueSchedule = (item: { scheduled_date: string; status: string }) =>
+    item.scheduled_date < todayStr &&
+    item.status !== 'concluido' &&
+    item.status !== 'cancelado';
+
   // Dias da semana ativa para a Weekly Strip
   const weekDays = useMemo(() => getWeekDays(selectedDate), [selectedDate]);
 
@@ -600,7 +605,16 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
     }
   };
 
-  const renderStatusBadge = (status: ScheduledServiceStatus) => {
+  const renderStatusBadge = (status: ScheduledServiceStatus, isOverdue: boolean = false) => {
+    if (isOverdue) {
+      return (
+        <span className="px-2 py-0.5 bg-orange-50/80 text-orange-700 border border-orange-200/70 rounded-md text-[11px] font-semibold inline-flex items-center gap-1 shrink-0 whitespace-nowrap">
+          <Clock className="w-3 h-3 text-orange-500 shrink-0" />
+          Não concluído
+        </span>
+      );
+    }
+
     switch (status) {
       case 'em_andamento':
         return (
@@ -636,6 +650,10 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
    * Define estilo visual sóbrio e corporativo: fundo neutro + borda sutil + indicador lateral discreto
    */
   const getTimelineBlockStyle = (item: ScheduledService) => {
+    if (isOverdueSchedule(item)) {
+      return 'bg-white hover:bg-slate-50/80 border-slate-200/80 border-l-[3px] border-l-orange-400 shadow-sm';
+    }
+
     switch (item.status) {
       case 'em_andamento':
         return 'bg-white hover:bg-slate-50/80 border-slate-200/80 border-l-[3px] border-l-amber-500 shadow-sm';
@@ -685,7 +703,7 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
           <span className="text-[11px] font-medium text-slate-500 truncate">
             {formatPeriodTimeRange(period)}
           </span>
-          {renderStatusBadge(item.status)}
+          {renderStatusBadge(item.status, isOverdueSchedule(item))}
         </div>
 
         {/* Meio do card: Nome do Cliente em destaque e Tipo de Serviço */}
@@ -1113,7 +1131,7 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
                         </span>
                       </div>
 
-                      {renderStatusBadge(item.status)}
+                      {renderStatusBadge(item.status, isOverdueSchedule(item))}
                     </div>
 
                     <div>
@@ -1165,7 +1183,7 @@ export const AdminAgenda: React.FC<AdminAgendaProps> = ({
             <div className="flex items-start justify-between gap-3 border-b border-[#F1F5F9] pb-3.5">
               <div className="space-y-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  {renderStatusBadge(detailSchedule.status)}
+                  {renderStatusBadge(detailSchedule.status, isOverdueSchedule(detailSchedule))}
                   <span className="text-xs font-extrabold text-[#475569] inline-flex items-center gap-1">
                     <Calendar className="w-3.5 h-3.5 text-[#F59E0B]" />
                     {formatDateBr(detailSchedule.scheduled_date)} •{' '}
