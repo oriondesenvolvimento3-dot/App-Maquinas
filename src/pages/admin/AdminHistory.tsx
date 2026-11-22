@@ -186,6 +186,16 @@ export function calculateFinancialSummary(
         total_hours: totalHours,
         total_amount: totalAmount,
       };
+    })
+    .sort((a, b) => {
+      const dateA = (a.service_date || '').slice(0, 10);
+      const dateB = (b.service_date || '').slice(0, 10);
+      if (dateA !== dateB) {
+        return dateB.localeCompare(dateA);
+      }
+      const createdA = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const createdB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return createdB - createdA;
     });
 
   const totalHours = Number(

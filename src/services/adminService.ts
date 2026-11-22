@@ -970,7 +970,17 @@ export async function fetchFinancialWorkLogs(): Promise<ExtendedWorkLog[]> {
     .map((log) => ({
       ...log,
       status: 'aprovado' as const,
-    }));
+    }))
+    .sort((a, b) => {
+      const dateA = (a.service_date || '').slice(0, 10);
+      const dateB = (b.service_date || '').slice(0, 10);
+      if (dateA !== dateB) {
+        return dateB.localeCompare(dateA); // service_date mais recente primeiro
+      }
+      const createdA = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const createdB = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return createdB - createdA; // desempate pelo lançamento mais recente no mesmo dia
+    });
 }
 
 /**
