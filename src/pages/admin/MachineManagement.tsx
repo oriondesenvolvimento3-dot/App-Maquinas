@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   fetchMachines,
   saveMachine,
+  deleteMachine,
   fetchAdminClients,
   saveAdminClient,
   deleteAdminClient,
@@ -67,6 +68,10 @@ export const MachineManagement: React.FC<MachineManagementProps> = ({
   const [formBillingUnit, setFormBillingUnit] = useState<BillingUnit>('hour');
   const [formActive, setFormActive] = useState<boolean>(true);
   const [isSavingMachine, setIsSavingMachine] = useState<boolean>(false);
+
+  // Modal de Confirmação de Exclusão de Máquina
+  const [machineToDelete, setMachineToDelete] = useState<Machine | null>(null);
+  const [isDeletingMachine, setIsDeletingMachine] = useState<boolean>(false);
 
   // Modal de Cliente (Novo / Editar)
   const [isClientModalOpen, setIsClientModalOpen] = useState<boolean>(false);
@@ -170,6 +175,27 @@ export const MachineManagement: React.FC<MachineManagementProps> = ({
     } else {
       const msg = result.error || 'Erro ao salvar máquina no Supabase.';
       setErrorMessage(msg);
+    }
+  };
+
+  const handleConfirmDeleteMachine = async () => {
+    if (!machineToDelete || isDeletingMachine) return;
+
+    setIsDeletingMachine(true);
+    setErrorMessage(null);
+
+    const res = await deleteMachine(machineToDelete.id);
+
+    setIsDeletingMachine(false);
+    setMachineToDelete(null);
+
+    if (res.success) {
+      setIsMachineModalOpen(false);
+      setEditingMachine(null);
+      showSuccess('Máquina excluída com sucesso!');
+      await loadAllMachines();
+    } else {
+      setErrorMessage(res.error || 'Erro ao excluir máquina.');
     }
   };
 
@@ -573,8 +599,8 @@ export const MachineManagement: React.FC<MachineManagementProps> = ({
               >
                 <AlertTriangle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
                 <div className="flex-1">
-                  <p className="font-bold">Erro ao salvar máquina</p>
-                  <p className="mt-0.5 break-words font-mono text-[11px]">{errorMessage}</p>
+                  <p className="font-bold">Não foi possível concluir a ação</p>
+                  <p className="mt-0.5 break-words text-[11px]">{errorMessage}</p>
                 </div>
                 <button
                   type="button"
@@ -708,6 +734,21 @@ export const MachineManagement: React.FC<MachineManagementProps> = ({
                   )}
                 </button>
               </div>
+
+              {editingMachine && (
+                <div className="pt-2 border-t border-[#F1F5F9]">
+                  <button
+                    id="btn-delete-machine"
+                    type="button"
+                    onClick={() => setMachineToDelete(editingMachine as Machine)}
+                    disabled={isSavingMachine || isDeletingMachine}
+                    className="w-full h-10 text-rose-600 hover:bg-rose-50 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Excluir Máquina</span>
+                  </button>
+                </div>
+              )}
             </form>
           </div>
         </div>
@@ -803,7 +844,62 @@ export const MachineManagement: React.FC<MachineManagementProps> = ({
         </div>
       )}
 
-      {/* 5. MODAL DE CONFIRMAÇÃO DE EXCLUSÃO DE CLIENTE */}
+      {/* 5. MODAL DE CONFIRMAÇÃO DE EXCLUSÃO DE MÁQUINA */}
+      {machineToDelete && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Confirmar exclusão de máquina"
+          className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-[60] p-4 animate-fade-in"
+        >
+          <div className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-red-50 border border-red-200 flex items-center justify-center text-red-600 shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-base font-extrabold text-[#0F172A]">
+                  Excluir máquina?
+                </h2>
+                <p className="text-xs text-[#64748B] mt-1 leading-relaxed">
+                  Deseja excluir{' '}
+                  <strong className="text-[#0F172A]">{machineToDelete.name}</strong>
+                  {machineToDelete.model ? (
+                    <span> ({machineToDelete.model})</span>
+                  ) : null}
+                  ? A máquina será removida da lista de equipamentos disponíveis, mas todos os serviços e históricos financeiros realizados por ela serão mantidos normalmente.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setMachineToDelete(null)}
+                disabled={isDeletingMachine}
+                className="flex-1 h-11 bg-white border border-[#E2E8F0] text-[#475569] hover:text-[#0F172A] font-bold text-xs rounded-xl cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                id="btn-confirm-delete-machine"
+                type="button"
+                onClick={handleConfirmDeleteMachine}
+                disabled={isDeletingMachine}
+                className="flex-1 h-11 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-50"
+              >
+                {isDeletingMachine ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                ) : (
+                  'Excluir Máquina'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6. MODAL DE CONFIRMAÇÃO DE EXCLUSÃO DE CLIENTE */}
       {clientToDelete && (
         <div
           role="dialog"

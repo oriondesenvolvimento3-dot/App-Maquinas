@@ -131,7 +131,7 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
       const finishRes = await finishWorkLog(
         {
           localId: activeBefore!.id,
-          machine_id: activeBefore!.machine_id,
+          machine_id: activeBefore!.machine_id || '',
           machine_name: activeBefore!.machine_name,
           operator_id: activeBefore!.operator_id,
           operator_name: activeBefore!.operator_name,
@@ -208,7 +208,7 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
       const finishRes = await finishWorkLog(
         {
           localId: active!.id,
-          machine_id: active!.machine_id,
+          machine_id: active!.machine_id || '',
           machine_name: active!.machine_name,
           operator_id: active!.operator_id,
           operator_name: active!.operator_name,
@@ -308,7 +308,7 @@ describe('Fluxo Operacional de Duas Etapas (Check-in e Check-out)', () => {
       const finishRes = await finishWorkLog(
         {
           localId: active!.id,
-          machine_id: active!.machine_id,
+          machine_id: active!.machine_id || '',
           machine_name: active!.machine_name,
           operator_id: active!.operator_id,
           operator_name: active!.operator_name,

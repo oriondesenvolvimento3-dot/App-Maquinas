@@ -87,7 +87,7 @@ export interface ExtendedWorkLog {
   id: string | number;
   server_id?: string | null;
   supabase_id?: string | null;
-  machine_id: string;
+  machine_id: string | null;
   machine_name: string;
   machine_model?: string;
   operator_id: string;
@@ -578,10 +578,12 @@ export async function fetchAdminWorkLogs(
           resultLogs = data.map((item: any) => {
             const joinedMachine = item.machines || null;
             const machine =
-              machineMap.get(item.machine_id) ||
-              Array.from(machineMap.values()).find(
-                (m) => m.name === item.machine_name || m.model === item.machine_name
-              );
+              (item.machine_id ? machineMap.get(item.machine_id) : undefined) ||
+              (item.machine_name
+                ? Array.from(machineMap.values()).find(
+                    (m) => m.name === item.machine_name || m.model === item.machine_name
+                  )
+                : undefined);
             const profile = profileMap.get(item.operator_id);
             const localMatch = localByServerId.get(item.id);
             const storedRate = storedRates[String(item.id)];
@@ -597,12 +599,22 @@ export async function fetchAdminWorkLogs(
                 ? machine.model.trim()
                 : undefined;
 
+            const savedItemMachineName =
+              item.machine_name && String(item.machine_name).trim() !== ''
+                ? String(item.machine_name).trim()
+                : undefined;
+            const savedLocalMachineName =
+              localMatch?.machine_name && String(localMatch.machine_name).trim() !== ''
+                ? String(localMatch.machine_name).trim()
+                : undefined;
+
             const resolvedDisplayMachine =
               resolvedModel ||
               joinedMachine?.name ||
               machine?.name ||
-              localMatch?.machine_name ||
-              'Retroescavadeira';
+              savedItemMachineName ||
+              savedLocalMachineName ||
+              (!item.machine_id ? 'Máquina removida' : 'Retroescavadeira');
 
             const remoteRate =
               item.hourly_rate !== undefined && item.hourly_rate !== null && Number(item.hourly_rate) > 0
@@ -638,7 +650,7 @@ export async function fetchAdminWorkLogs(
               item.billing_unit === 'km' ||
               localMatch?.billing_unit === 'km' ||
               machine?.billing_unit === 'km' ||
-              storedUnits[item.machine_id] === 'km'
+              (item.machine_id ? storedUnits[item.machine_id] === 'km' : false)
                 ? 'km'
                 : 'hour';
 
@@ -810,10 +822,12 @@ export async function fetchAdminWorkLogs(
     const mappedLocalLogs = localLogs.map((log) => {
       const status = log.status || (log as any).approval_status || 'pendente';
       const machine =
-        machineMap.get(log.machine_id) ||
-        Array.from(machineMap.values()).find(
-          (m) => m.name === log.machine_name || m.model === log.machine_name
-        );
+        (log.machine_id ? machineMap.get(log.machine_id) : undefined) ||
+        (log.machine_name
+          ? Array.from(machineMap.values()).find(
+              (m) => m.name === log.machine_name || m.model === log.machine_name
+            )
+          : undefined);
       const resolvedModel =
         machine?.model &&
         machine.model.trim() !== '' &&
@@ -840,7 +854,7 @@ export async function fetchAdminWorkLogs(
       const resolvedUnit: BillingUnit =
         log.billing_unit === 'km' ||
         machine?.billing_unit === 'km' ||
-        storedUnits[log.machine_id] === 'km'
+        (log.machine_id ? storedUnits[log.machine_id] === 'km' : false)
           ? 'km'
           : 'hour';
 
@@ -889,7 +903,14 @@ export async function fetchAdminWorkLogs(
         id: log.id || log.server_id || `temp-${Math.random()}`,
         server_id: log.server_id,
         machine_id: log.machine_id,
-        machine_name: resolvedModel || machine?.name || log.machine_name,
+        machine_name:
+          resolvedModel ||
+          machine?.name ||
+          (log.machine_name && log.machine_name.trim() !== ''
+            ? log.machine_name.trim()
+            : !log.machine_id
+            ? 'Máquina removida'
+            : 'Retroescavadeira'),
         machine_model: resolvedModel,
         operator_id: log.operator_id,
         operator_name: log.operator_name,
@@ -1616,6 +1637,143 @@ export async function saveMachine(
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Falha ao salvar máquina';
     console.error('[saveMachine Unexpected Error]:', msg);
+    return { success: false, error: msg };
+  }
+}
+
+/**
+ * 5.1. CRUD de Máquinas: exclusão preservando o histórico de serviços e agendamentos
+ * (garante machine_name preenchido nos registros vinculados antes de deletar)
+ */
+export async function deleteMachine(
+  id: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (!id || !String(id).trim()) {
+      return { success: false, error: 'ID da máquina inválido.' };
+    }
+
+    const targetId = String(id).trim();
+    const online =
+      typeof navigator !== 'undefined' && navigator.onLine && isSupabaseConfigured();
+
+    // 1. Obtém dados da máquina (name, model) antes da exclusão para preservar o nome no histórico
+    let machineRecord: Partial<Machine> | null =
+      (await db.cached_machines.get(targetId).catch(() => undefined)) || null;
+
+    if (!machineRecord && online && isValidUUID(targetId)) {
+      try {
+        const { data: remoteMachine } = await supabase
+          .from('machines')
+          .select('name, model')
+          .eq('id', targetId)
+          .maybeSingle();
+        if (remoteMachine) {
+          machineRecord = remoteMachine as Partial<Machine>;
+        }
+      } catch {
+        // Segue com fallback se não for possível ler antes
+      }
+    }
+
+    const validModel =
+      machineRecord?.model &&
+      machineRecord.model.trim() !== '' &&
+      machineRecord.model.trim() !== 'Padrão'
+        ? machineRecord.model.trim()
+        : '';
+    const validName = machineRecord?.name?.trim() || '';
+    const labelMaquina = validModel || validName || 'Máquina removida';
+
+    // 2. Preserva machine_name em work_logs e scheduled_services no Supabase (onde estiver vazio/nulo)
+    if (online && isValidUUID(targetId)) {
+      try {
+        await supabase
+          .from('work_logs')
+          .update({ machine_name: labelMaquina } as any)
+          .eq('machine_id', targetId)
+          .or('machine_name.is.null,machine_name.eq.');
+      } catch {
+        // Ignora caso a coluna machine_name ainda não exista no schema remoto
+      }
+
+      try {
+        await supabase
+          .from('scheduled_services')
+          .update({ machine_name: labelMaquina } as any)
+          .eq('machine_id', targetId)
+          .or('machine_name.is.null,machine_name.eq.');
+      } catch {
+        // Ignora caso a coluna machine_name ainda não exista no schema remoto
+      }
+
+      // 3. Exclui a máquina no Supabase (ON DELETE SET NULL mantém work_logs/scheduled_services intactos)
+      const { data, error } = await supabase
+        .from('machines')
+        .delete()
+        .eq('id', targetId)
+        .select('id');
+
+      if (error) {
+        console.error('[Supabase deleteMachine Error]:', error);
+        toast.error(error.message);
+        return { success: false, error: error.message };
+      }
+
+      if (!data || data.length === 0) {
+        return {
+          success: false,
+          error:
+            'Não foi possível excluir a máquina no servidor. Verifique as permissões de exclusão (RLS) da tabela machines.',
+        };
+      }
+    }
+
+    // 4. Preserva machine_name e desvincula machine_id no cache local Dexie (offline_work_logs e scheduled_services)
+    try {
+      const localWorkLogs = await db.offline_work_logs.toArray();
+      const linkedLogs = localWorkLogs.filter((l) => l.machine_id === targetId);
+      for (const log of linkedLogs) {
+        if (log.id !== undefined) {
+          await db.offline_work_logs.update(log.id, {
+            machine_id: null,
+            machine_name:
+              log.machine_name && log.machine_name.trim() !== ''
+                ? log.machine_name
+                : labelMaquina,
+          });
+        }
+      }
+    } catch {
+      // Ignora falhas de atualização no cache local de work_logs
+    }
+
+    try {
+      const localSchedules = await db.scheduled_services.toArray();
+      const linkedSchedules = localSchedules.filter((s) => s.machine_id === targetId);
+      for (const sched of linkedSchedules) {
+        if (sched.id !== undefined) {
+          await db.scheduled_services.put({
+            ...sched,
+            machine_id: null,
+            machine_name:
+              sched.machine_name && sched.machine_name.trim() !== ''
+                ? sched.machine_name
+                : labelMaquina,
+          });
+        }
+      }
+    } catch {
+      // Ignora falhas de atualização no cache local de agendamentos
+    }
+
+    // 5. Remove a máquina do cache local Dexie
+    await db.cached_machines.delete(targetId);
+
+    return { success: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Falha ao excluir máquina';
+    console.error('[deleteMachine Unexpected Error]:', msg);
     return { success: false, error: msg };
   }
 }

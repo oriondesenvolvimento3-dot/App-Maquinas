@@ -98,7 +98,8 @@ export interface Client {
  */
 export interface WorkLog {
   id: string; // UUID
-  machine_id: string; // FK -> Machine
+  machine_id: string | null; // FK -> Machine (nullable via ON DELETE SET NULL)
+  machine_name?: string | null; // Nome preservado no histórico caso a máquina seja excluída
   operator_id: string; // FK -> Profile
   client_name: string; // Nome do cliente / obra
   client_phone?: string | null; // Telefone / WhatsApp do cliente (opcional)
@@ -158,7 +159,7 @@ export interface OfflineWorkLog {
   id?: string | number; // UUID gerado na origem (ou inteiro legado do Dexie)
   server_id?: string | null; // UUID oficial no Supabase após inserção/sincronização
   supabase_id?: string | null; // Alias opcional de UUID remoto
-  machine_id: string;
+  machine_id: string | null;
   machine_name: string; // Desnormalizado para visualização offline rápida
   operator_id: string;
   operator_name: string; // Desnormalizado para visualização offline rápida
@@ -245,7 +246,8 @@ export type Database = {
         Row: { [K in keyof WorkLog]: WorkLog[K] };
         Insert: {
           id?: string;
-          machine_id: string;
+          machine_id: string | null;
+          machine_name?: string | null;
           operator_id: string;
           client_name: string;
           client_phone?: string | null;
@@ -263,7 +265,8 @@ export type Database = {
         };
         Update: {
           id?: string;
-          machine_id?: string;
+          machine_id?: string | null;
+          machine_name?: string | null;
           operator_id?: string;
           client_name?: string;
           client_phone?: string | null;

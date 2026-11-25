@@ -387,6 +387,7 @@ export async function syncPendingServices(): Promise<number> {
             updatePayload.status !== 'em_andamento' &&
             updatePayload.end_hours !== undefined &&
             updatePayload.end_hours > 0 &&
+            log.machine_id &&
             isValidUuid(log.machine_id)
           ) {
             try {
@@ -449,7 +450,7 @@ export async function syncPendingServices(): Promise<number> {
           // Marca o registro como sincronizado no Dexie com o UUID confirmado e synced: true
           await markWorkLogAsSynced(log.id, confirmedUuid);
 
-          if (insertPayload.status !== 'em_andamento' && insertPayload.end_hours > 0 && isValidUuid(log.machine_id)) {
+          if (insertPayload.status !== 'em_andamento' && insertPayload.end_hours > 0 && log.machine_id && isValidUuid(log.machine_id)) {
             try {
               await supabase
                 .from('machines')

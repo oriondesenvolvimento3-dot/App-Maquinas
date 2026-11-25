@@ -121,7 +121,7 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
     const finishPayload: FinishServiceFormData = {
       localId: activeLog.id,
       serverId: activeLog.server_id,
-      machine_id: activeLog.machine_id,
+      machine_id: activeLog.machine_id || '',
       machine_name: activeLog.machine_name,
       operator_id: activeLog.operator_id,
       operator_name: activeLog.operator_name,
@@ -143,7 +143,7 @@ export const FinishServiceForm: React.FC<FinishServiceFormProps> = ({
       const result = await finishWorkLog(finishPayload, isOnline);
       if (result.success) {
         onSuccess({
-          machine_id: activeLog.machine_id,
+          machine_id: activeLog.machine_id || '',
           machine_name: activeLog.machine_name,
           operator_id: activeLog.operator_id,
           operator_name: activeLog.operator_name,
